@@ -1,7 +1,7 @@
 === CaffeOnline Feed Sync ===
-Stable tag: 0.4.14
+Stable tag: 0.4.15
 
-== Fixes / Neu in 0.4.14 ==
+== Fixes / Neu in 0.4.15 ==
 - **3h-Cron erweitert:** Supplier-Sales/Stock-/Einkaufspreis-Sync Hook läuft alle 3 Stunden (`cofs_hourly_supplier_stock_delta`).
 - **Preisänderungslog erweitert:** Einkaufspreisänderungen aus dem manuellen Sync und dem 3h-Cron werden protokolliert.
 - **Preisänderungen besser sichtbar:** Die Log-Tabelle zeigt Differenz und Prozentänderung; starke Sprünge ab 10% werden hervorgehoben.

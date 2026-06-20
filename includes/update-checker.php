@@ -26,6 +26,9 @@ final class COFS_Update_Checker {
     /**
      * Initialize Plugin Update Checker if the production dependency exists.
      *
+     * The dependency is loaded late to avoid a duplicate Composer autoloader when
+     * another Webjungle plugin already provides Plugin Update Checker.
+     *
      * @param string $main_plugin_file Absolute path to the main plugin file.
      * @return void
      */
@@ -34,11 +37,15 @@ final class COFS_Update_Checker {
             return;
         }
 
-        self::$initialized = true;
+        if ( ! class_exists( PucFactory::class ) ) {
+            self::load_dependency();
+        }
 
         if ( ! class_exists( PucFactory::class ) ) {
             return;
         }
+
+        self::$initialized = true;
 
         try {
             $update_checker = PucFactory::buildUpdateChecker(
@@ -65,6 +72,19 @@ final class COFS_Update_Checker {
     private static function maybe_log_error( Throwable $exception ) {
         if ( defined( 'WP_DEBUG' ) && WP_DEBUG && function_exists( 'error_log' ) ) {
             error_log( 'CaffeOnline Feed Sync update checker failed: ' . $exception->getMessage() );
+        }
+    }
+
+    /**
+     * Load the bundled dependency only when no other plugin already loaded it.
+     *
+     * @return void
+     */
+    private static function load_dependency() {
+        $autoload_file = dirname( __DIR__ ) . '/vendor/autoload.php';
+
+        if ( is_readable( $autoload_file ) ) {
+            require_once $autoload_file;
         }
     }
 }

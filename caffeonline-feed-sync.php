@@ -4,7 +4,7 @@
  * Plugin URI:  https://github.com/webjungle/caffeonline-feed-sync
  * Description: CSV-Feed (GTIN) → Woo SKU Matching. Batch-Sync (AJAX), Uploads-Cache und 3h-Cron für Lagerbestand.
  * Author: Webjungle
- * Version: 0.4.14
+ * Version: 0.4.15
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Text Domain: caffeonline-feed-sync
@@ -12,22 +12,23 @@
  */
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define('COFS_VERSION','0.4.14');
+define('COFS_VERSION','0.4.15');
 define( 'COFS_FILE', __FILE__ );
 define( 'COFS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'COFS_URL', plugin_dir_url( __FILE__ ) );
-
-$cofs_autoload_file = COFS_DIR . 'vendor/autoload.php';
-if ( file_exists( $cofs_autoload_file ) ) {
-    require_once $cofs_autoload_file;
-}
 
 $cofs_update_checker_file = COFS_DIR . 'includes/update-checker.php';
 if ( file_exists( $cofs_update_checker_file ) ) {
     require_once $cofs_update_checker_file;
 
     if ( class_exists( 'COFS_Update_Checker', false ) ) {
-        COFS_Update_Checker::init( COFS_FILE );
+        add_action(
+            'plugins_loaded',
+            function() {
+                COFS_Update_Checker::init( COFS_FILE );
+            },
+            99
+        );
     }
 }
 
