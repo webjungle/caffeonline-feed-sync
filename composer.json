@@ -1,0 +1,14 @@
+{
+  "name": "webjungle/caffeonline-feed-sync",
+  "description": "WordPress WooCommerce CaffeOnline feed sync with GitHub release updates.",
+  "type": "wordpress-plugin",
+  "license": "GPL-2.0-or-later",
+  "require": {
+    "php": ">=7.4",
+    "yahnis-elsts/plugin-update-checker": "^5.7"
+  },
+  "scripts": {
+    "build": "bash bin/build-release.sh",
+    "validate-version": "@php bin/validate-version.php"
+  }
+}

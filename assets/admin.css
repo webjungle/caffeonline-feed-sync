@@ -1,0 +1,141 @@
+/* Basis-Box / Layout */
+.cofs-box {
+	background:#fff;
+	border:1px solid #dcdcde;
+	padding:16px;
+	margin:12px 0;
+}
+
+/* Progressbar */
+.cofs-progress {
+	position: relative;
+	height: 10px;
+	background: #f0f0f1;
+	border:1px solid #dcdcde;
+	margin:12px 0;
+	border-radius:6px;
+	overflow:hidden;
+}
+.cofs-progress .bar {
+	height:100%;
+	background:#2271b1;
+	width:0%;
+	transition: width 0.2s ease;
+}
+
+/* Status-Text unter Progress */
+#cofs-status {
+	margin: 8px 0;
+	font-size: 12px;
+	color:#50575e;
+}
+
+/* ---------------------------------
+   Produktliste: Feed Sync Spalte
+---------------------------------- */
+.column-cofs_feed {
+	width: 80px;
+	text-align: center;
+}
+.cofs-feed-status {
+	display: inline-block;
+	padding: 2px 6px;
+	font-size: 11px;
+	line-height: 1.4;
+	border-radius: 4px;
+}
+.cofs-feed-ok {
+	background: #e6f6ed;
+	color: #137333;
+	font-weight: 600;
+}
+.cofs-feed-missing {
+	background: #fce8e6;
+	color: #c5221f;
+}
+.cofs-feed-excluded {
+	background: #fff3cd;
+	color: #856404;
+}
+.cofs-feed-nosku {
+	color: #999;
+}
+.cofs-feed-nocache {
+	background: #f1f1f1;
+	color: #666;
+}
+
+/* ---------------------------------
+   Fehlende Produkte: Scraper-Spalte
+---------------------------------- */
+
+/* Zelle mit URL + Button + Status */
+.cofs-scrape-cell {
+	vertical-align: top;
+	white-space: normal;
+}
+
+/* URL-Feld für caffeonline.ch-Links */
+.cofs-scrape-cell .cofs-source-url {
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 260px;
+	padding: 3px 6px;
+	font-size: 11px;
+	line-height: 1.4;
+}
+
+/* Import-Button kompakt daneben/darunter */
+.cofs-scrape-cell .cofs-scrape-btn {
+	margin-top: 2px;
+	padding: 2px 8px;
+	font-size: 11px;
+	line-height: 1.6;
+}
+
+/* Status-Text unter dem Button */
+.cofs-scrape-cell .cofs-scrape-status {
+	margin-top: 2px;
+	min-height: 14px;
+	font-size: 10px;
+	line-height: 1.4;
+	color: #666;
+	word-break: break-word;
+}
+
+/* Erfolgs-Status (Produkt angelegt) */
+.cofs-scrape-cell .cofs-scrape-status.cofs-scrape-success {
+	color: #137333;
+}
+
+/* Fehler-Status (ungültige URL / Scrape-Fehler) */
+.cofs-scrape-cell .cofs-scrape-status.cofs-scrape-error {
+	color: #c5221f;
+}
+
+/* Während Request (optional, falls per JS gesetzt) */
+.cofs-scrape-cell .cofs-scrape-status.cofs-scrape-loading {
+	color: #50575e;
+}
+
+/* Link im Status dezent */
+.cofs-scrape-cell .cofs-scrape-status a {
+	color: #2271b1;
+	text-decoration: none;
+}
+.cofs-scrape-cell .cofs-scrape-status a:hover {
+	text-decoration: underline;
+}
+
+/* Kleine Optimierung für enge Tabellen auf kleineren Screens */
+@media (max-width: 1024px) {
+	.cofs-scrape-cell .cofs-source-url {
+		max-width: 100%;
+	}
+}
+
+
+/* Missing products search */
+#cofs-missing-search{
+  min-width: 240px;
+}

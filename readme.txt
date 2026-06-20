@@ -1,0 +1,24 @@
+=== CaffeOnline Feed Sync ===
+Stable tag: 0.4.14
+
+== Fixes / Neu in 0.4.14 ==
+- **3h-Cron erweitert:** Supplier-Sales/Stock-/Einkaufspreis-Sync Hook läuft alle 3 Stunden (`cofs_hourly_supplier_stock_delta`).
+- **Preisänderungslog erweitert:** Einkaufspreisänderungen aus dem manuellen Sync und dem 3h-Cron werden protokolliert.
+- **Preisänderungen besser sichtbar:** Die Log-Tabelle zeigt Differenz und Prozentänderung; starke Sprünge ab 10% werden hervorgehoben.
+
+== Fixes / Neu in 0.4.10 ==
+- **Auto-Prepare beim manuellen Sync:** Klick auf **Sync starten** führt automatisch zuerst **Feed vorbereiten** aus.
+- **Preisänderungs-Log:** Jede Änderung an `_purchase_price` wird in eigener DB-Tabelle gespeichert.
+- **Neue Admin-Unterseite:** **Preisänderungen** zeigt die letzten Einkaufspreis-Änderungen inkl. Alt/Neu und Zeitpunkt.
+
+== Fixes / Neu in 0.4.9 ==
+- **Dry-Run entfernt:** Sync läuft nur noch als echter Apply-Sync.
+- **Debug-Bereich entfernt:** Admin-UI und AJAX-Debug-Endpunkt entfernt.
+
+== Fixes / Neu in 0.4.4 ==
+- **Max. Zeilen greift sofort:** Cache-Key enthält jetzt `feed_url + max_rows`. Änderung von „Max. Zeilen“ erzeugt automatisch eine neue Cache-Datei.
+- **„Neu laden erzwingen“** beim Button **Feed vorbereiten** → ignoriert TTL und baut den Cache direkt neu auf.
+- Statuszeile zeigt nun `max_rows` an, damit du siehst, ob die Begrenzung aktiv ist.
+
+== Hinweis ==
+- Wenn sich nur die Batch-Größe ändert, muss der Cache nicht neu gebaut werden.

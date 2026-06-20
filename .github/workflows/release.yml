@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Show runtime versions
+        run: |
+          php -v
+          composer --version
+
+      - name: Validate Composer metadata
+        run: composer validate --strict
+
+      - name: Install production dependencies
+        run: composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
+
+      - name: Validate release version
+        run: composer run validate-version -- --tag="${GITHUB_REF_NAME}"
+
+      - name: Check PHP syntax
+        run: |
+          find . \
+            -path './vendor' -prune -o \
+            -path './dist' -prune -o \
+            -name '*.php' -print0 \
+            | xargs -0 -n1 php -l
+
+      - name: Build release ZIP
+        run: composer run build
+
+      - name: Verify release ZIP
+        run: |
+          test -f dist/caffeonline-feed-sync.zip
+          unzip -Z1 dist/caffeonline-feed-sync.zip | grep -qx 'caffeonline-feed-sync/vendor/autoload.php'
+          test "$(unzip -Z1 dist/caffeonline-feed-sync.zip | awk -F/ 'NF {print $1}' | sort -u | wc -l | tr -d ' ')" = "1"
+          test "$(unzip -Z1 dist/caffeonline-feed-sync.zip | awk -F/ 'NF {print $1}' | sort -u)" = "caffeonline-feed-sync"
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/caffeonline-feed-sync.zip \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "Release ${GITHUB_REF_NAME}" \
+            --verify-tag

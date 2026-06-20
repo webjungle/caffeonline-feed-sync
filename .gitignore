@@ -1,0 +1,7 @@
+/vendor/
+/dist/
+/composer.lock
+.DS_Store
+*.bak
+*.bak.*
+*.zip
