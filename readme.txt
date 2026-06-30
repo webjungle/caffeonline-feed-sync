@@ -1,5 +1,8 @@
 === CaffeOnline Feed Sync ===
-Stable tag: 0.4.16
+Stable tag: 0.4.17
+
+== Fixes / Neu in 0.4.17 ==
+- **Produkt-Matching beim Sync korrigiert:** Der eigentliche Feed-Sync sucht Produkte jetzt zuerst über die Lieferanten-SKU (`CO-...`) und danach über GTIN/EAN. Zusätzlich werden `_sku`, `_vendor_sku`, `_bcl_original_sku` und `_global_unique_id` als Match-Metafelder berücksichtigt.
 
 == Fixes / Neu in 0.4.16 ==
 - **Feed-Sync-Spalte korrigiert:** Feed-Zeilen werden jetzt mit allen vorhandenen Schlüsseln indexiert (`GTIN`, `EAN`, `SKU`, `Key`). Produkte mit WooCommerce-SKU `CO-...` werden dadurch auch dann korrekt als im Feed gefunden markiert, wenn die Feed-Zeile zusätzlich eine GTIN/EAN enthält.

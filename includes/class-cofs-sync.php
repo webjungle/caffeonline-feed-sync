@@ -131,19 +131,7 @@ class COFS_Sync {
                 continue;
             }
 
-            $sku = trim(
-                (string) $this->feed->col(
-                    $row,
-                    [
-                        'GTIN', 'gtin',
-                        'EAN',  'ean',
-                        'Key(GTIN/EAN/SKU)',
-                        'Key',  'key',
-                    ]
-                )
-            );
-
-            if ( '' !== $sku ) {
+            foreach ( $this->get_feed_match_keys( $row ) as $sku ) {
                 $skus[ $sku ] = true;
             }
         }
@@ -158,7 +146,7 @@ class COFS_Sync {
             SELECT pm.meta_value AS sku, pm.post_id AS post_id
             FROM {$wpdb->postmeta} pm
             INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
-            WHERE pm.meta_key = '_sku'
+            WHERE pm.meta_key IN ('_sku', '_vendor_sku', '_bcl_original_sku', '_global_unique_id')
               AND pm.meta_value IN ($placeholders)
               AND p.post_type IN ('product', 'product_variation')
               AND p.post_status NOT IN ('trash', 'auto-draft')
@@ -191,28 +179,41 @@ class COFS_Sync {
         return (int) wc_get_product_id_by_sku( $sku );
     }
 
-    private function diff_row( $r ) {
-        // 1) Produkt finden: anhand der GTIN/EAN aus dem Feed
-        //    (WooCommerce-SKU = GTIN/EAN)
-        $feed_sku = trim(
-            (string) $this->feed->col( $r, [
-                'GTIN', 'gtin',
-                'EAN',  'ean',
-                'Key(GTIN/EAN/SKU)',
-                'Key',  'key',
-            ] )
-        );
+    private function get_feed_match_keys( $row ) : array {
+        $keys = [
+            $this->feed->col( $row, [ 'SKU', 'sku' ] ),
+            $this->feed->col( $row, [ 'GTIN', 'gtin', 'EAN', 'ean', 'Key(GTIN/EAN/SKU)', 'Key', 'key' ] ),
+        ];
 
-        if ( '' === $feed_sku ) {
+        $clean = [];
+        foreach ( $keys as $key ) {
+            $key = trim( (string) $key );
+            if ( '' !== $key ) {
+                $clean[ $key ] = true;
+            }
+        }
+
+        return array_keys( $clean );
+    }
+
+    private function diff_row( $r ) {
+        // Produkt finden: zuerst Lieferanten-SKU, danach GTIN/EAN als Fallback.
+        $feed_sku = '';
+        $pid      = 0;
+        foreach ( $this->get_feed_match_keys( $r ) as $candidate_sku ) {
+            $candidate_id = $this->get_product_id_by_sku( $candidate_sku );
+            if ( $candidate_id ) {
+                $feed_sku = $candidate_sku;
+                $pid      = $candidate_id;
+                break;
+            }
+        }
+
+        if ( ! $pid ) {
             return null;
         }
 
         if ( ! function_exists( 'wc_get_product_id_by_sku' ) ) {
-            return null;
-        }
-
-        $pid = $this->get_product_id_by_sku( $feed_sku );
-        if ( ! $pid ) {
             return null;
         }
 
