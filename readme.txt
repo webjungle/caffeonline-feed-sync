@@ -1,5 +1,8 @@
 === CaffeOnline Feed Sync ===
-Stable tag: 0.4.15
+Stable tag: 0.4.16
+
+== Fixes / Neu in 0.4.16 ==
+- **Feed-Sync-Spalte korrigiert:** Feed-Zeilen werden jetzt mit allen vorhandenen Schlüsseln indexiert (`GTIN`, `EAN`, `SKU`, `Key`). Produkte mit WooCommerce-SKU `CO-...` werden dadurch auch dann korrekt als im Feed gefunden markiert, wenn die Feed-Zeile zusätzlich eine GTIN/EAN enthält.
 
 == Fixes / Neu in 0.4.15 ==
 - **3h-Cron erweitert:** Supplier-Sales/Stock-/Einkaufspreis-Sync Hook läuft alle 3 Stunden (`cofs_hourly_supplier_stock_delta`).

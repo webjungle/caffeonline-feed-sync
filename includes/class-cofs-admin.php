@@ -523,11 +523,12 @@ class COFS_Admin {
                 if ( ! is_array( $row ) ) {
                     continue;
                 }
-                foreach ( [ 'GTIN','gtin','EAN','ean','sku','SKU' ] as $key ) {
+                foreach ( [ 'GTIN','gtin','EAN','ean','Key(GTIN/EAN/SKU)','Key','key','sku','SKU' ] as $key ) {
                     if ( isset( $row[ $key ] ) && $row[ $key ] !== '' ) {
-                        $val = (string) $row[ $key ];
-                        $index[ $val ] = true;
-                        break;
+                        $val = trim( (string) $row[ $key ] );
+                        if ( '' !== $val ) {
+                            $index[ $val ] = true;
+                        }
                     }
                 }
             }
