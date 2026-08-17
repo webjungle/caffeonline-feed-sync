@@ -278,14 +278,23 @@ class COFS_Supplier_Report {
         foreach ( array_chunk( array_keys( $clean ), 500 ) as $chunk ) {
             $placeholders = implode( ',', array_fill( 0, count( $chunk ), '%s' ) );
             $sql = "
-                SELECT pm.meta_value AS sku, pm.post_id AS post_id, p.post_type AS post_type, p.post_parent AS post_parent
+                SELECT pm.meta_value AS sku, pm.meta_key AS match_key, pm.post_id AS post_id, p.post_type AS post_type, p.post_parent AS post_parent
                 FROM {$wpdb->postmeta} pm
                 INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
-                WHERE pm.meta_key = '_sku'
+                WHERE pm.meta_key IN ('_sku', '_vendor_sku', '_bcl_original_sku', '_global_unique_id')
                   AND pm.meta_value IN ($placeholders)
                   AND p.post_type IN ('product', 'product_variation')
                   AND p.post_status NOT IN ('trash', 'auto-draft')
-                ORDER BY CASE WHEN p.post_type = 'product' THEN 0 ELSE 1 END, pm.post_id ASC
+                ORDER BY
+                    CASE pm.meta_key
+                        WHEN '_sku' THEN 0
+                        WHEN '_vendor_sku' THEN 1
+                        WHEN '_bcl_original_sku' THEN 2
+                        WHEN '_global_unique_id' THEN 3
+                        ELSE 4
+                    END,
+                    CASE WHEN p.post_type = 'product' THEN 0 ELSE 1 END,
+                    pm.post_id ASC
             ";
 
             $rows = $wpdb->get_results( $wpdb->prepare( $sql, $chunk ), ARRAY_A );
@@ -362,11 +371,46 @@ class COFS_Supplier_Report {
     }
 
     private static function sync_local_product_data_from_map( array $current ) : array {
+        if ( class_exists( 'COFS_Multi_Supplier_Stock' ) && COFS_Multi_Supplier_Stock::is_enabled() ) {
+            $rows = [];
+            foreach ( $current as $feed_sku => $row ) {
+                $rows[] = [
+                    'GTIN' => (string) $feed_sku,
+                    'SKU' => (string) ( $row['vendor_sku'] ?? '' ),
+                    'Stock' => (int) ( $row['stock'] ?? 0 ),
+                    'Purchase Price' => (string) ( $row['purchase_price'] ?? '' ),
+                ];
+            }
+            return COFS_Multi_Supplier_Stock::sync_caffeonline_rows( new COFS_Feed( '' ), $rows );
+        }
+
         if ( empty( $current ) || ! function_exists( 'wc_get_product' ) ) {
             return self::empty_product_sync_result();
         }
 
-        $records  = self::get_existing_product_records_by_skus( array_keys( $current ) );
+        $lookup_keys = [];
+        foreach ( $current as $feed_sku => $feed_row ) {
+            $feed_sku = trim( (string) $feed_sku );
+            if ( '' !== $feed_sku ) {
+                $lookup_keys[ $feed_sku ] = true;
+            }
+
+            $vendor_sku = trim( (string) ( is_array( $feed_row ) ? ( $feed_row['vendor_sku'] ?? '' ) : '' ) );
+            if ( '' !== $vendor_sku ) {
+                $lookup_keys[ $vendor_sku ] = true;
+            }
+        }
+
+        $matched_records = self::get_existing_product_records_by_skus( array_keys( $lookup_keys ) );
+        $records         = [];
+        foreach ( $current as $feed_sku => $feed_row ) {
+            $vendor_sku = trim( (string) ( is_array( $feed_row ) ? ( $feed_row['vendor_sku'] ?? '' ) : '' ) );
+            $record     = $matched_records[ $feed_sku ] ?? ( '' !== $vendor_sku ? ( $matched_records[ $vendor_sku ] ?? null ) : null );
+
+            if ( is_array( $record ) ) {
+                $records[ $feed_sku ] = $record;
+            }
+        }
         $excluded = self::get_excluded_product_ids();
         $result   = self::empty_product_sync_result();
 

@@ -18,6 +18,15 @@ class COFS_Sync {
     }
 
     public function apply( $rows ) {
+        if ( class_exists( 'COFS_Multi_Supplier_Stock' ) && COFS_Multi_Supplier_Stock::is_enabled() ) {
+            $result = COFS_Multi_Supplier_Stock::sync_caffeonline_rows( $this->feed, $rows );
+            return [
+                'mode'    => 'apply',
+                'count'   => count( $result['changes'] ),
+                'changes' => $result['changes'],
+            ];
+        }
+
         $changes = [];
         $this->prime_product_ids( $rows );
 

@@ -2,11 +2,13 @@
 
 WooCommerce plugin for syncing the CaffeOnline supplier feed by GTIN/EAN/SKU.
 
-**Aktuelle Plugin-Version:** `0.4.17`
+**Aktuelle Plugin-Version:** `0.5.11`
 
 ## Features
 
-- Batch sync for supplier stock, vendor SKU, and purchase prices.
+- Multi-supplier stock logic: CaffeOnline is always primary. TopItaly is used only as a fallback when CaffeOnline is out of stock; TopItaly-only products are imported as separate draft products.
+- TopItaly sitemap scanner with parallel product-page fetching, EAN/SKU matching, stock extraction, and manual per-product TopItaly purchase prices.
+- Batch sync for CaffeOnline supplier stock, vendor SKU, and purchase prices.
 - 3-hour supplier cron for stock and purchase-price updates.
 - Purchase-price change log with source, old/new price, difference, and percentage change.
 - Missing-product scan with draft-safe product import helpers.
@@ -47,8 +49,8 @@ composer run build
 Create a semantic version tag:
 
 ```bash
-git tag v0.4.17
-git push origin v0.4.17
+git tag v0.5.11
+git push origin v0.5.11
 ```
 
 GitHub Actions builds `dist/caffeonline-feed-sync.zip` and attaches it to the release.

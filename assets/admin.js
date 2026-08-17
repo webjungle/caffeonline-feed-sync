@@ -72,7 +72,7 @@
     $('.cofs-progress .bar').css('width', p + '%');
   }
   function lockRunUI(locked){
-    $('#cofs-prepare,#cofs-force,#cofs-run').prop('disabled', !!locked);
+    $('#cofs-prepare,#cofs-force,#cofs-run,#cofs-run-all').prop('disabled', !!locked);
     $('#cofs-cancel').prop('disabled', !locked);
   }
   function safeMsg(res, fallback){
@@ -90,6 +90,7 @@
   var prepared = null;
   var cancelled = false;
   var running = false;
+  var runAllSources = false;
 
   // -----------------------------
   // Prepare Feed (shared helper)
@@ -114,6 +115,7 @@
       if(!res || !res.success){
         status('Fehler: ' + safeMsg(res));
         running = false;
+        runAllSources = false;
         return;
       }
       prepared = res.data || {};
@@ -129,6 +131,7 @@
       }
     }).fail(function(xhr){
       running = false;
+      runAllSources = false;
       status('Fehler beim Vorbereiten (' + xhr.status + ').' + failDetail(xhr));
     }).always(function(){
       if(!running){
@@ -152,6 +155,7 @@
     e.preventDefault();
     cancelled = true;
     running = false;
+    runAllSources = false;
     lockRunUI(false);
     status('Abgebrochen.');
   });
@@ -159,7 +163,7 @@
   // -----------------------------
   // Run
   // -----------------------------
-  $(document).on('click', '#cofs-run', function(e){
+  $(document).on('click', '#cofs-run,#cofs-run-all', function(e){
     e.preventDefault();
 
     if (running) {
@@ -171,9 +175,11 @@
 
     cancelled = false;
     running = true;
+    runAllSources = this.id === 'cofs-run-all';
     prepareFeed(function(){
       if (cancelled) {
         running = false;
+        runAllSources = false;
         lockRunUI(false);
         status('Abgebrochen.');
         return;
@@ -189,6 +195,7 @@
   function step(offset){
     if(cancelled){
       running = false;
+      runAllSources = false;
       lockRunUI(false);
       return;
     }
@@ -203,6 +210,7 @@
       if(!res || !res.success){
         status('Fehler: ' + safeMsg(res));
         running = false;
+        runAllSources = false;
         lockRunUI(false);
         return;
       }
@@ -223,10 +231,22 @@
       } else {
         running = false;
         lockRunUI(false);
-        status('Fertig. Änderungen (letzter Schritt): ' + (d.count || 0) + '.');
+        if (runAllSources && !cancelled) {
+          runAllSources = false;
+          var topItalyButton = $('#cofs-topitaly-start');
+          if (topItalyButton.length && !topItalyButton.prop('disabled')) {
+            status('CaffeOnline fertig. Starte jetzt den TopItaly-Sitemap-Abgleich …');
+            topItalyButton.trigger('click');
+          } else {
+            status('CaffeOnline fertig. Der TopItaly-Sitemap-Abgleich läuft bereits.');
+          }
+        } else {
+          status('Fertig. Änderungen (letzter Schritt): ' + (d.count || 0) + '.');
+        }
       }
     }).fail(function(xhr){
       running = false;
+      runAllSources = false;
       lockRunUI(false);
       status('Fehler beim Sync (' + xhr.status + ').' + failDetail(xhr));
     });
@@ -816,3 +836,76 @@
     if (supplierBody) supplierBody.addEventListener('click', onScrapeClick);
   });
 })();
+
+/* TopItaly sitemap scanner progress UI */
+(function($){
+  var running = false;
+  function topItalyMessage(res, fallback){ return (res && res.data && res.data.message) ? res.data.message : fallback; }
+  function topItalyFailure(xhr){
+    var text = xhr && xhr.responseText ? xhr.responseText.replace(/<[^>]*>/g, '').trim() : '';
+    return text ? (' Details: ' + text.substring(0, 500)) : '';
+  }
+  function topItalyStatus(message){ $('#cofs-topitaly-status').text(message); }
+  function topItalyProgress(offset, total){
+    var pct = total ? Math.round((Number(offset) / Number(total)) * 100) : 0;
+    $('#cofs-topitaly-progress .bar').css('width', Math.max(0, Math.min(100, pct)) + '%');
+  }
+  function topItalyErrors(errors, total){
+    if (!errors || !errors.length) return;
+    var list = $.map(errors, function(error){
+      return '<li><code>' + $('&lt;div&gt;').text(error.url || '').html() + '</code>: ' + $('&lt;div&gt;').text(error.message || 'Unbekannter Fehler').html() + '</li>';
+    }).join('');
+    $('#cofs-topitaly-errors').html('<p>' + (total || errors.length) + ' Abruffehler:</p><ul>' + list + '</ul>').show();
+  }
+  function topItalyStep(){
+    if (!running) return;
+    $.post(COFS.ajax, { action: 'cofs_topitaly_scan_step', nonce: COFS.nonce }, function(res){
+      if (!res || !res.success) {
+        running = false;
+        $('#cofs-topitaly-start').prop('disabled', false);
+        topItalyStatus('Fehler: ' + topItalyMessage(res, 'TopItaly-Scan fehlgeschlagen.'));
+        return;
+      }
+      var data = res.data || {};
+      topItalyProgress(data.offset || 0, data.total || 0);
+      topItalyErrors(data.last_errors, data.error_count);
+      topItalyStatus('Verarbeitet: ' + (data.offset || 0) + ' von ' + (data.total || 0) + ' URLs. Erkannte Produkte: ' + (data.matched_total || 0) + '.');
+      if (!data.finished) {
+        setTimeout(topItalyStep, 120);
+      } else {
+        running = false;
+        $('#cofs-topitaly-start').prop('disabled', false);
+        topItalyStatus('TopItaly-Sitemap-Abgleich abgeschlossen. ' + (data.error_count || 0) + ' Abruffehler.');
+      }
+    }).fail(function(xhr){
+      running = false;
+      $('#cofs-topitaly-start').prop('disabled', false);
+      topItalyStatus('Fehler beim TopItaly-Scan (' + xhr.status + ').' + topItalyFailure(xhr));
+    });
+  }
+  $(document).on('click', '#cofs-topitaly-start', function(e){
+    e.preventDefault();
+    if (running) return;
+    running = true;
+    $('#cofs-topitaly-start').prop('disabled', true);
+    $('#cofs-topitaly-errors').hide().empty();
+    topItalyProgress(0, 1);
+    topItalyStatus('Lese TopItaly-Sitemap …');
+    $.post(COFS.ajax, { action: 'cofs_topitaly_scan_start', nonce: COFS.nonce }, function(res){
+      if (!res || !res.success) {
+        running = false;
+        $('#cofs-topitaly-start').prop('disabled', false);
+        topItalyStatus('Fehler: ' + topItalyMessage(res, 'TopItaly-Scan konnte nicht gestartet werden.'));
+        return;
+      }
+      var total = (res.data || {}).total || 0;
+      topItalyProgress(0, total);
+      topItalyStatus('Sitemap gelesen: ' + total + ' URLs. Starte Abgleich …');
+      topItalyStep();
+    }).fail(function(xhr){
+      running = false;
+      $('#cofs-topitaly-start').prop('disabled', false);
+      topItalyStatus('Fehler beim Lesen der Sitemap (' + xhr.status + ').' + topItalyFailure(xhr));
+    });
+  });
+})(jQuery);

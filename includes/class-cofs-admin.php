@@ -22,6 +22,8 @@ class COFS_Admin {
         // Sync
         add_action( 'wp_ajax_cofs_prepare_feed', [ $this, 'ajax_prepare_feed' ] );
         add_action( 'wp_ajax_cofs_sync_step',    [ $this, 'ajax_sync_step' ] );
+        add_action( 'wp_ajax_cofs_topitaly_scan_start', [ $this, 'ajax_topitaly_scan_start' ] );
+        add_action( 'wp_ajax_cofs_topitaly_scan_step', [ $this, 'ajax_topitaly_scan_step' ] );
 
         // Produktliste: Feed Sync Spalte
         add_filter( 'manage_edit-product_columns', [ $this, 'add_product_feed_column' ], 25 );
@@ -38,6 +40,7 @@ class COFS_Admin {
 
         // NEW: Scraper für fehlende Produkte (CSV → Shop)
         add_action( 'wp_ajax_cofs_scrape_product', [ $this, 'ajax_scrape_product' ] );        
+        add_action( 'admin_post_cofs_topitaly_scan', [ $this, 'handle_topitaly_scan' ] );
     }
 
     public function enqueue_assets( $hook ) {
@@ -445,6 +448,10 @@ class COFS_Admin {
             'cofs_settings',
             'cofs_main'
         );
+
+        if ( class_exists( 'COFS_Multi_Supplier_Stock' ) ) {
+            COFS_Multi_Supplier_Stock::register_settings_fields();
+        }
     }
 
     public function sanitize_settings( $input ) {
@@ -454,6 +461,13 @@ class COFS_Admin {
         $out['batch_size'] = max( 1, intval( $input['batch_size'] ?? 50 ) );
         $out['cache_ttl']  = max( 1, intval( $input['cache_ttl'] ?? 60 ) );
         $out['max_rows']   = max( 0, intval( $input['max_rows'] ?? 0 ) );
+        $out['topitaly_enabled'] = ! empty( $input['topitaly_enabled'] ) ? 1 : 0;
+        $out['topitaly_sitemap_url'] = isset( $input['topitaly_sitemap_url'] ) ? esc_url_raw( trim( $input['topitaly_sitemap_url'] ) ) : '';
+        $out['topitaly_batch_size'] = max( 1, min( 30, intval( $input['topitaly_batch_size'] ?? 12 ) ) );
+        $out['caffeonline_warehouse_term_id'] = absint( $input['caffeonline_warehouse_term_id'] ?? 0 );
+        $out['topitaly_warehouse_term_id'] = absint( $input['topitaly_warehouse_term_id'] ?? 0 );
+        $out['caffeonline_stock_tolerance'] = max( 0, intval( $input['caffeonline_stock_tolerance'] ?? 0 ) );
+        $out['topitaly_stock_tolerance'] = max( 0, intval( $input['topitaly_stock_tolerance'] ?? 0 ) );
 
         // Ausschlussliste normalisieren
         if ( isset( $input['excluded_product_ids'] ) && is_array( $input['excluded_product_ids'] ) ) {
@@ -467,6 +481,34 @@ class COFS_Admin {
         }
 
         return $out;
+    }
+
+    public function handle_topitaly_scan() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Keine Berechtigung.', 'caffeonline-feed-sync' ) );
+        }
+        check_admin_referer( 'cofs_topitaly_scan' );
+        $result = class_exists( 'COFS_Multi_Supplier_Stock' ) ? COFS_Multi_Supplier_Stock::start_topitaly_scan() : [ 'ok' => false, 'message' => __( 'Multi-Lieferanten-Sync ist nicht verfügbar.', 'caffeonline-feed-sync' ) ];
+        $target = add_query_arg( [ 'page' => 'cofs_dashboard', 'cofs_topitaly_scan' => ! empty( $result['ok'] ) ? 'started' : 'error', 'cofs_topitaly_count' => (int) ( $result['total'] ?? 0 ), 'cofs_topitaly_message' => rawurlencode( (string) ( $result['message'] ?? '' ) ) ], admin_url( 'admin.php' ) );
+        wp_safe_redirect( $target );
+        exit;
+    }
+
+    public function ajax_topitaly_scan_start() {
+        $this->verify_ajax();
+        $result = class_exists( 'COFS_Multi_Supplier_Stock' ) ? COFS_Multi_Supplier_Stock::start_topitaly_scan( false ) : [ 'ok' => false, 'message' => __( 'Multi-Lieferanten-Sync ist nicht verfügbar.', 'caffeonline-feed-sync' ) ];
+        if ( empty( $result['ok'] ) ) {
+            $this->send_json_error( [ 'message' => (string) ( $result['message'] ?? __( 'TopItaly-Scan konnte nicht gestartet werden.', 'caffeonline-feed-sync' ) ) ] );
+        }
+        $this->send_json_success( $result );
+    }
+
+    public function ajax_topitaly_scan_step() {
+        $this->verify_ajax();
+        if ( ! class_exists( 'COFS_Multi_Supplier_Stock' ) ) {
+            $this->send_json_error( [ 'message' => __( 'Multi-Lieferanten-Sync ist nicht verfügbar.', 'caffeonline-feed-sync' ) ] );
+        }
+        $this->send_json_success( COFS_Multi_Supplier_Stock::process_topitaly_scan() );
     }
 
     // --------------------------------------------------
@@ -626,15 +668,27 @@ class COFS_Admin {
         submit_button( __( 'Speichern', 'caffeonline-feed-sync' ) );
         echo '</form>';
 
+        if ( class_exists( 'COFS_Multi_Supplier_Stock' ) ) {
+            $scan_state = COFS_Multi_Supplier_Stock::get_topitaly_state();
+            $scan_total = (int) ( $scan_state['total'] ?? 0 );
+            $scan_offset = (int) ( $scan_state['offset'] ?? 0 );
+            echo '<div class="cofs-box"><h2>' . esc_html__( 'TopItaly Sitemap-Abgleich', 'caffeonline-feed-sync' ) . '</h2>';
+            echo '<p id="cofs-topitaly-status">' . esc_html( sprintf( __( 'Bereit. Letzter Stand: %1$d von %2$d Sitemap-URLs verarbeitet. CaffeOnline bleibt primär; TopItaly ist nur Fallback bei Bestand 0.', 'caffeonline-feed-sync' ), $scan_offset, $scan_total ) ) . '</p>';
+            echo '<div id="cofs-topitaly-progress" class="cofs-progress"><div class="bar" style="width:' . esc_attr( $scan_total > 0 ? min( 100, round( $scan_offset / $scan_total * 100 ) ) : 0 ) . '%"></div></div>';
+            echo '<div id="cofs-topitaly-errors" class="notice notice-error inline" style="display:none;"></div>';
+            echo '<p><button type="button" class="button button-secondary" id="cofs-topitaly-start">' . esc_html__( 'Nur TopItaly Sitemap-Scan starten', 'caffeonline-feed-sync' ) . '</button></p></div>';
+        }
+
         // Sync
         echo '<div class="cofs-box">';
         echo '<h2>' . esc_html__( 'Sync (Batch)', 'caffeonline-feed-sync' ) . '</h2>';
-        echo '<p>' . esc_html__( '„Sync starten“ führt automatisch zuerst „Feed vorbereiten“ aus (inkl. Max-Zeilen). Mit „Neu laden erzwingen“ wird der Cache davor komplett neu erstellt.', 'caffeonline-feed-sync' ) . '</p>';
+        echo '<p>' . esc_html__( '„Sync starten“ führt automatisch zuerst „Feed vorbereiten“ aus (inkl. Max-Zeilen). „Alle Quellen synchronisieren“ startet danach zusätzlich den TopItaly-Sitemap-Abgleich. Mit „Neu laden erzwingen“ wird der CaffeOnline-Cache davor komplett neu erstellt.', 'caffeonline-feed-sync' ) . '</p>';
 
         echo '<div id="cofs-controls">';
         echo '  <button class="button" id="cofs-prepare" type="button">' . esc_html__( 'Feed vorbereiten', 'caffeonline-feed-sync' ) . '</button> ';
         echo '  <label style="margin-left:8px;"><input type="checkbox" id="cofs-force" /> ' . esc_html__( 'Neu laden erzwingen', 'caffeonline-feed-sync' ) . '</label> ';
         echo '  <button class="button button-primary" id="cofs-run" type="button">' . esc_html__( 'Sync starten', 'caffeonline-feed-sync' ) . '</button> ';
+        echo '  <button class="button" id="cofs-run-all" type="button">' . esc_html__( 'Alle Quellen synchronisieren', 'caffeonline-feed-sync' ) . '</button> ';
         echo '  <button class="button" id="cofs-cancel" type="button" disabled>' . esc_html__( 'Abbrechen', 'caffeonline-feed-sync' ) . '</button>';
         echo '</div>';
 
