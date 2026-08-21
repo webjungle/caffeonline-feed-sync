@@ -1,5 +1,9 @@
 === CaffeOnline Feed Sync ===
-Stable tag: 0.5.12
+Stable tag: 0.5.13
+
+== Fixes / Neu in 0.5.13 ==
+
+* Gelöschte TopItaly-Produkte werden über SKU, EAN und Quell-URL dauerhaft vom erneuten Sitemap-Import ausgeschlossen.
 
 == Fixes / Neu in 0.5.12 ==
 

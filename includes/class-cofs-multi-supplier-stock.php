@@ -344,6 +344,19 @@ class COFS_Multi_Supplier_Stock {
     }
 
     private static function sync_topitaly_item( array $item ) : void {
+        if (
+            class_exists( 'COFS_Deleted_Feed_Items' )
+            && COFS_Deleted_Feed_Items::is_blocked(
+                [
+                    'sku'        => (string) ( $item['sku'] ?? '' ),
+                    'global_id'  => (string) ( $item['ean'] ?? '' ),
+                    'vendor_sku' => (string) ( $item['sku'] ?? '' ),
+                    'source_url' => (string) ( $item['url'] ?? '' ),
+                ]
+            )
+        ) {
+            return;
+        }
         if ( self::is_excluded_topitaly_item( $item ) ) {
             self::remove_excluded_topitaly_product( $item );
             return;

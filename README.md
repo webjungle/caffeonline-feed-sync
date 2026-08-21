@@ -2,7 +2,7 @@
 
 WooCommerce plugin for syncing the CaffeOnline supplier feed by GTIN/EAN/SKU.
 
-**Aktuelle Plugin-Version:** `0.5.12`
+**Aktuelle Plugin-Version:** `0.5.13`
 
 ## Features
 
