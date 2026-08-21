@@ -1,5 +1,10 @@
 === CaffeOnline Feed Sync ===
-Stable tag: 0.5.11
+Stable tag: 0.5.12
+
+== Fixes / Neu in 0.5.12 ==
+
+* Sperrbare TopItaly-Zuordnung pro Produkt: Packungsgrössen-Mismatches werden sofort aus der Lieferanten-Auswahl entfernt und nicht erneut verknüpft.
+* Produkte ohne verbleibende valide Lieferquelle werden beim Entfernen einer gesperrten TopItaly-Zuordnung sicher auf nicht lieferbar gesetzt.
 
 == Fixes / Neu in 0.5.11 ==
 

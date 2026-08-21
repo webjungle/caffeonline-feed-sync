@@ -13,6 +13,7 @@ class COFS_Multi_Supplier_Stock {
     const META_SOURCES    = '_cofs_supplier_sources';
     const META_ACTIVE     = '_cofs_active_supplier';
     const META_ACTIVE_SKU = '_cofs_active_supplier_sku';
+    const META_TOPITALY_MATCH_BLOCKED = '_cofs_topitaly_match_blocked';
 
     public static function init() : void {
         add_action( self::CRON_HOOK, [ __CLASS__, 'cron_run' ] );
@@ -125,6 +126,7 @@ class COFS_Multi_Supplier_Stock {
         woocommerce_wp_text_input( [ 'id' => '_cofs_topitaly_ean', 'label' => __( 'TopItaly EAN', 'caffeonline-feed-sync' ), 'value' => get_post_meta( $post->ID, '_cofs_topitaly_ean', true ) ] );
         woocommerce_wp_text_input( [ 'id' => '_cofs_topitaly_sku', 'label' => __( 'TopItaly SKU', 'caffeonline-feed-sync' ), 'value' => get_post_meta( $post->ID, '_cofs_topitaly_sku', true ) ] );
         woocommerce_wp_text_input( [ 'id' => '_cofs_topitaly_purchase_price', 'label' => __( 'TopItaly Einkaufspreis (CHF)', 'caffeonline-feed-sync' ), 'data_type' => 'price', 'value' => get_post_meta( $post->ID, '_cofs_topitaly_purchase_price', true ), 'description' => __( 'Manuell gepflegt; wird nur übernommen, wenn TopItaly der aktive Lieferant ist.', 'caffeonline-feed-sync' ), 'desc_tip' => true ] );
+        woocommerce_wp_checkbox( [ 'id' => self::META_TOPITALY_MATCH_BLOCKED, 'label' => __( 'TopItaly-Zuordnung sperren', 'caffeonline-feed-sync' ), 'description' => __( 'Verhindert, dass ein TopItaly-Artikel mit abweichender Packungsgrösse diesem Shopprodukt erneut zugeordnet wird.', 'caffeonline-feed-sync' ) ] );
         echo '</div>';
     }
 
@@ -135,6 +137,11 @@ class COFS_Multi_Supplier_Stock {
         }
         if ( isset( $_POST['_cofs_topitaly_purchase_price'] ) ) {
             $product->update_meta_data( '_cofs_topitaly_purchase_price', wc_format_decimal( wp_unslash( $_POST['_cofs_topitaly_purchase_price'] ) ) );
+        }
+        if ( isset( $_POST[ self::META_TOPITALY_MATCH_BLOCKED ] ) ) {
+            $product->update_meta_data( self::META_TOPITALY_MATCH_BLOCKED, 'yes' );
+        } else {
+            $product->delete_meta_data( self::META_TOPITALY_MATCH_BLOCKED );
         }
     }
 
@@ -342,6 +349,10 @@ class COFS_Multi_Supplier_Stock {
             return;
         }
         $product_id = self::find_product_id( [ $item['ean'] ?? '', $item['sku'] ?? '' ] );
+        if ( $product_id && self::is_topitaly_match_blocked( $product_id ) ) {
+            self::remove_topitaly_source_from_shared_product( $product_id );
+            return;
+        }
         if ( ! $product_id ) {
             $product_id = self::create_topitaly_product( $item );
         }
@@ -364,6 +375,19 @@ class COFS_Multi_Supplier_Stock {
         if ( '' === (string) $product->get_short_description( 'edit' ) && ! empty( $item['description'] ) ) $product->set_short_description( wp_kses_post( $item['description'] ) );
         $result = self::empty_result();
         self::apply_supplier_candidate( $product_id, $item, $result, $product );
+    }
+
+    /** Returns whether a known pack-size mismatch must never be linked to TopItaly again. */
+    private static function is_topitaly_match_blocked( int $product_id ) : bool {
+        return 'yes' === get_post_meta( $product_id, self::META_TOPITALY_MATCH_BLOCKED, true );
+    }
+
+    /** Blocks a shared product from TopItaly and immediately removes that source from its stock calculation. */
+    public static function block_topitaly_match( int $product_id ) : bool {
+        if ( ! wc_get_product( $product_id ) ) return false;
+        update_post_meta( $product_id, self::META_TOPITALY_MATCH_BLOCKED, 'yes' );
+        self::remove_topitaly_source_from_shared_product( $product_id );
+        return true;
     }
 
     /** TopItaly departments that must never become shop products. */
@@ -393,7 +417,7 @@ class COFS_Multi_Supplier_Stock {
     /** A shared CaffeOnline product stays in the shop, but can no longer fall back to an excluded TopItaly item. */
     private static function remove_topitaly_source_from_shared_product( int $product_id ) : void {
         $sources = get_post_meta( $product_id, self::META_SOURCES, true );
-        if ( ! is_array( $sources ) || ! isset( $sources['topitaly'] ) ) return;
+        if ( ! is_array( $sources ) ) $sources = [];
         unset( $sources['topitaly'] );
         update_post_meta( $product_id, self::META_SOURCES, $sources );
         delete_post_meta( $product_id, '_cofs_topitaly_ean' );
@@ -403,7 +427,17 @@ class COFS_Multi_Supplier_Stock {
 
         $active = self::choose_active_supplier( $sources, '' );
         $product = wc_get_product( $product_id );
-        if ( ! $product || ! $active || empty( $sources[ $active ] ) ) return;
+        if ( ! $product ) return;
+        if ( ! $active || empty( $sources[ $active ] ) ) {
+            $product->set_manage_stock( true );
+            $product->set_stock_quantity( 0 );
+            $product->set_stock_status( 'outofstock' );
+            $product->delete_meta_data( self::META_ACTIVE );
+            $product->delete_meta_data( self::META_ACTIVE_SKU );
+            $product->save();
+            self::sync_active_supplier_warehouse( $product_id, '' );
+            return;
+        }
         $data = $sources[ $active ];
         $stock = self::effective_supplier_stock( $active, $data );
         $product->set_manage_stock( true );
