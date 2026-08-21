@@ -390,6 +390,13 @@ class COFS_Multi_Supplier_Stock {
         return true;
     }
 
+    /** Removes a deleted TopItaly source while preserving any valid alternate supplier. */
+    public static function remove_stale_topitaly_source( int $product_id ) : bool {
+        if ( ! wc_get_product( $product_id ) ) return false;
+        self::remove_topitaly_source_from_shared_product( $product_id );
+        return true;
+    }
+
     /** TopItaly departments that must never become shop products. */
     private static function is_excluded_topitaly_item( array $item ) : bool {
         $excluded = [ 'grundzutaten', 'waschmittel hygiene', 'waschmittel und hygiene', 'spielzeug' ];
