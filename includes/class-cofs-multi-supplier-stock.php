@@ -180,7 +180,12 @@ class COFS_Multi_Supplier_Stock {
             return [ 'ok' => false, 'message' => $message ];
         }
 
-        update_option( self::TOPITALY_STATE, [ 'urls' => array_values( $urls ), 'offset' => 0, 'total' => count( $urls ), 'matched_items' => 0, 'error_count' => 0, 'last_errors' => [], 'started_at' => time(), 'updated_at' => time(), 'completed_at' => 0 ], false );
+        // Recheck known pages even when a supplier removes them from its sitemap.
+        foreach ( (array) get_option( self::TOPITALY_CACHE, [] ) as $item ) {
+            if ( ! empty( $item['url'] ) ) $urls[] = (string) $item['url'];
+        }
+        $urls = array_values( array_unique( $urls ) );
+        update_option( self::TOPITALY_STATE, [ 'urls' => $urls, 'offset' => 0, 'total' => count( $urls ), 'matched_items' => 0, 'error_count' => 0, 'last_errors' => [], 'not_found_urls' => [], 'started_at' => time(), 'updated_at' => time(), 'completed_at' => 0 ], false );
         if ( $schedule_fallback ) self::schedule_topitaly_step( 5 );
         return [ 'ok' => true, 'total' => count( $urls ) ];
     }
@@ -246,8 +251,12 @@ class COFS_Multi_Supplier_Stock {
             $matched++;
         }
 
-        update_option( self::TOPITALY_CACHE, $cache, false );
         $state['offset'] = min( count( $urls ), $offset + count( $batch ) );
+        $state['not_found_urls'] = array_values( array_unique( array_merge( (array) ( $state['not_found_urls'] ?? [] ), $fetched['not_found'] ) ) );
+        if ( $state['offset'] >= count( $urls ) ) {
+            self::mark_removed_topitaly_items( $cache, $state );
+        }
+        update_option( self::TOPITALY_CACHE, $cache, false );
         $state['updated_at'] = time();
         $state['matched_items'] = (int) ( $state['matched_items'] ?? 0 ) + $matched;
         $state['error_count'] = (int) ( $state['error_count'] ?? 0 ) + count( $errors );
@@ -261,6 +270,27 @@ class COFS_Multi_Supplier_Stock {
             wp_clear_scheduled_hook( self::SCAN_HOOK );
         }
         return [ 'processed' => count( $batch ), 'offset' => (int) $state['offset'], 'total' => count( $urls ), 'matched' => $matched, 'matched_total' => (int) $state['matched_items'], 'errors' => $errors, 'last_errors' => (array) $state['last_errors'], 'error_count' => (int) $state['error_count'], 'finished' => $state['offset'] >= count( $urls ) ];
+    }
+
+    private static function mark_removed_topitaly_items( array &$cache, array $state ) : void {
+        foreach ( $cache as &$item ) {
+            // A fresh language/URL variant for the same EAN takes precedence.
+            if ( (int) ( $item['updated_at'] ?? 0 ) >= (int) $state['started_at'] || ! in_array( $item['url'] ?? '', $state['not_found_urls'], true ) ) continue;
+            $item['stock'] = 0;
+            $item['updated_at'] = time();
+            $item['unavailable_reason'] = 'http_not_found';
+            $product_id = self::find_product_id( [ $item['ean'] ?? '', $item['sku'] ?? '' ] );
+            if ( ! $product_id || ! self::is_product_in_scope( $product_id ) ) continue;
+            $sources = get_post_meta( $product_id, self::META_SOURCES, true );
+            $source = is_array( $sources ) ? ( $sources['topitaly'] ?? [] ) : [];
+            if ( empty( $source['ean'] ) || (string) $source['ean'] !== (string) ( $item['ean'] ?? '' ) ) continue;
+            $source['stock'] = 0;
+            $source['updated_at'] = time();
+            $result = self::empty_result();
+            update_post_meta( $product_id, '_cofs_topitaly_stock', 0 );
+            self::apply_supplier_candidate( $product_id, $source, $result );
+        }
+        unset( $item );
     }
 
     private static function discover_topitaly_urls() {
@@ -294,12 +324,12 @@ class COFS_Multi_Supplier_Stock {
     private static function fetch_url( string $url ) {
         $response = wp_remote_get( $url, [ 'timeout' => 30, 'redirection' => 3, 'headers' => [ 'Accept-Encoding' => 'gzip' ], 'user-agent' => 'CaffeOnline-Feed-Sync/0.5 (+ ' . home_url() . ')' ] );
         if ( is_wp_error( $response ) ) return $response;
-        if ( 200 !== (int) wp_remote_retrieve_response_code( $response ) ) return new WP_Error( 'cofs_topitaly_http', sprintf( __( 'TopItaly lieferte HTTP %d.', 'caffeonline-feed-sync' ), (int) wp_remote_retrieve_response_code( $response ) ) );
+        if ( 200 !== (int) wp_remote_retrieve_response_code( $response ) ) return new WP_Error( 'cofs_topitaly_http', sprintf( __( 'TopItaly lieferte HTTP %d.', 'caffeonline-feed-sync' ), (int) wp_remote_retrieve_response_code( $response ) ), [ 'status' => (int) wp_remote_retrieve_response_code( $response ) ] );
         return (string) wp_remote_retrieve_body( $response );
     }
 
     private static function fetch_many( array $urls ) : array {
-        $result = [ 'pages' => [], 'errors' => [] ];
+        $result = [ 'pages' => [], 'errors' => [], 'not_found' => [] ];
         $requests_class = class_exists( '\\WpOrg\\Requests\\Requests' ) ? '\\WpOrg\\Requests\\Requests' : ( class_exists( 'Requests' ) ? 'Requests' : '' );
         if ( $requests_class && method_exists( $requests_class, 'request_multiple' ) ) {
             $requests = [];
@@ -310,6 +340,7 @@ class COFS_Multi_Supplier_Stock {
                     $result['pages'][ $url ] = (string) $response->body;
                     continue;
                 }
+                if ( is_object( $response ) && isset( $response->status_code ) && in_array( (int) $response->status_code, [ 404, 410 ], true ) ) $result['not_found'][] = (string) $url;
                 $reason = is_wp_error( $response ) ? $response->get_error_message() : ( is_object( $response ) && isset( $response->status_code ) ? 'HTTP ' . (int) $response->status_code : __( 'Unbekannter Abruffehler.', 'caffeonline-feed-sync' ) );
                 $result['errors'][] = [ 'url' => (string) $url, 'message' => $reason ];
             }
@@ -320,6 +351,7 @@ class COFS_Multi_Supplier_Stock {
             if ( ! is_wp_error( $body ) ) {
                 $result['pages'][ $url ] = $body;
             } else {
+                if ( in_array( (int) ( $body->get_error_data()['status'] ?? 0 ), [ 404, 410 ], true ) ) $result['not_found'][] = (string) $url;
                 $result['errors'][] = [ 'url' => (string) $url, 'message' => $body->get_error_message() ];
             }
         }

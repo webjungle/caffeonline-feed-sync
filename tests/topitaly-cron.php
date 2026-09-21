@@ -5,8 +5,10 @@ define( 'DB_NAME', 'cofs_cron_test' );
 
 class WP_Error {
     private $message;
-    public function __construct( $code, $message ) { $this->message = $message; }
+    private $data;
+    public function __construct( $code, $message, $data = null ) { $this->message = $message; $this->data = $data; }
     public function get_error_message() { return $this->message; }
+    public function get_error_data() { return $this->data; }
 }
 class Test_DB {
     public $prefix = 'wp_';
@@ -29,6 +31,7 @@ function __( $text, $domain = '' ) { return $text; }
 function home_url() { return 'https://shop.test'; }
 function esc_url_raw( $url ) { return $url; }
 function is_wp_error( $value ) { return $value instanceof WP_Error; }
+function absint( $value ) { return abs( (int) $value ); }
 function wc_get_product( $id ) { return null; } // Woo persistence is checked on the real import.
 function get_post_meta( $id, $key, $single = false ) { return ''; }
 function get_option( $key, $default = false ) {
@@ -164,5 +167,79 @@ scenario( 'Disabled TopItaly does not continue pending imports', function() {
     COFS_Multi_Supplier_Stock::cron_run();
     COFS_Multi_Supplier_Stock::process_topitaly_scan();
     expect( $state === COFS_Multi_Supplier_Stock::get_topitaly_state() && count( $GLOBALS['requests'] ) === $count, 'Disabled source was processed' );
+} );
+function known_missing_item( $ean = '9999999999999' ) {
+    update_option( COFS_Multi_Supplier_Stock::TOPITALY_CACHE, [ $ean => [ 'supplier' => 'topitaly', 'ean' => $ean, 'sku' => 'TI999', 'url' => 'https://source.test/old', 'stock' => 9, 'updated_at' => time() - 100 ] ] );
+}
+function finish_scan() {
+    for ( $i = 0; $i < 10; $i++ ) {
+        if ( ! empty( COFS_Multi_Supplier_Stock::process_topitaly_scan()['finished'] ) ) return;
+    }
+    throw new RuntimeException( 'Scan did not finish' );
+}
+scenario( 'Known pages missing from the sitemap are rechecked and only confirmed 404/410 stock is cleared', function() {
+    foreach ( [ 404, 410 ] as $status ) {
+        reset_case();
+        known_missing_item();
+        $GLOBALS['responses']['https://source.test/old'] = response( 'Removed', $status );
+        COFS_Multi_Supplier_Stock::cron_run();
+        expect( COFS_Multi_Supplier_Stock::get_topitaly_state()['total'] === 3, 'Known missing page was omitted' );
+        expect( get_option( COFS_Multi_Supplier_Stock::TOPITALY_CACHE )['9999999999999']['stock'] === 9, 'Stock cleared before confirmation' );
+        finish_scan();
+        $item = get_option( COFS_Multi_Supplier_Stock::TOPITALY_CACHE )['9999999999999'];
+        expect( $item['stock'] === 0 && $item['unavailable_reason'] === 'http_not_found', 'Removed stock was retained' );
+    }
+} );
+scenario( 'Timeouts, rate limits, server errors and unparseable pages retain known stock', function() {
+    foreach ( [ new WP_Error( 'timeout', 'Timeout' ), response( 'Limited', 429 ), response( 'Unavailable', 503 ), response( '<html>Maintenance</html>' ) ] as $failure ) {
+        reset_case();
+        known_missing_item();
+        $GLOBALS['responses']['https://source.test/old'] = $failure;
+        COFS_Multi_Supplier_Stock::cron_run();
+        finish_scan();
+        expect( get_option( COFS_Multi_Supplier_Stock::TOPITALY_CACHE )['9999999999999']['stock'] === 9, 'Transient failure cleared stock' );
+    }
+} );
+scenario( 'A valid replacement URL for the same EAN wins over the old URL returning 404', function() {
+    known_missing_item( '1234567890123' );
+    $GLOBALS['responses']['https://source.test/old'] = response( 'Removed', 404 );
+    COFS_Multi_Supplier_Stock::cron_run();
+    finish_scan();
+    $item = get_option( COFS_Multi_Supplier_Stock::TOPITALY_CACHE )['1234567890123'];
+    expect( $item['stock'] === 8 && $item['url'] === 'https://source.test/a', 'Old URL overrode fresh replacement' );
+} );
+scenario( 'A removed article that returns in a later cycle becomes available again', function() {
+    known_missing_item();
+    $GLOBALS['responses']['https://source.test/old'] = response( 'Removed', 404 );
+    COFS_Multi_Supplier_Stock::cron_run();
+    finish_scan();
+    $GLOBALS['responses']['https://source.test/old'] = response( str_replace( [ '1234567890123', 'TI001', 'max="8"' ], [ '9999999999999', 'TI999', 'max="4"' ], $GLOBALS['responses']['https://source.test/a']['body'] ) );
+    COFS_Multi_Supplier_Stock::cron_run();
+    finish_scan();
+    $item = get_option( COFS_Multi_Supplier_Stock::TOPITALY_CACHE )['9999999999999'];
+    expect( $item['stock'] === 4 && ! isset( $item['unavailable_reason'] ), 'Returned article stayed unavailable' );
+} );
+// Exercise the parallel Requests transport used by the live WordPress install.
+if ( ! class_exists( 'Requests', false ) ) {
+class Requests {
+    public static function request_multiple( $requests ) {
+        $responses = [];
+        foreach ( $requests as $url => $request ) {
+            $response = wp_remote_get( $url );
+            $responses[$url] = is_wp_error( $response ) ? $response : (object) [ 'status_code' => $response['status'], 'body' => $response['body'] ];
+        }
+        return $responses;
+    }
+}
+}
+scenario( 'Parallel Requests transport distinguishes removed pages from temporary failures', function() {
+    foreach ( [ 404 => 0, 410 => 0, 503 => 9, 429 => 9 ] as $status => $expected ) {
+        reset_case();
+        known_missing_item();
+        $GLOBALS['responses']['https://source.test/old'] = response( 'Unavailable', $status );
+        COFS_Multi_Supplier_Stock::cron_run();
+        finish_scan();
+        expect( get_option( COFS_Multi_Supplier_Stock::TOPITALY_CACHE )['9999999999999']['stock'] === $expected, 'Parallel transport applied the wrong stock for HTTP ' . $status );
+    }
 } );
 echo "$tests scenarios passed.\n";
