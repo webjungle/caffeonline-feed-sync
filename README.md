@@ -2,7 +2,7 @@
 
 WooCommerce plugin for syncing the CaffeOnline supplier feed by GTIN/EAN/SKU.
 
-**Aktuelle Plugin-Version:** `0.5.13`
+**Aktuelle Plugin-Version:** `0.5.14`
 
 ## Features
 
@@ -54,8 +54,8 @@ composer run build
 Create a semantic version tag:
 
 ```bash
-git tag v0.5.11
-git push origin v0.5.11
+git tag v0.5.14
+git push --atomic origin main v0.5.14
 ```
 
 GitHub Actions builds `dist/caffeonline-feed-sync.zip` and attaches it to the release.

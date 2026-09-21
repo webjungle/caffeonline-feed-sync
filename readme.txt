@@ -1,5 +1,13 @@
 === CaffeOnline Feed Sync ===
-Stable tag: 0.5.13
+Stable tag: 0.5.14
+
+== Fixes / Neu in 0.5.14 ==
+
+* TopItaly startet alle drei Stunden einen neuen Bestandsabgleich und setzt laufende Scans ohne Zurücksetzen fort.
+* Eine Datenbanksperre und das erneute Einlesen des Fortschritts verhindern konkurrierende Cron-/Admin-Läufe.
+* Bekannte Produktseiten werden auch nach dem Entfernen aus der Sitemap geprüft. Bestätigte HTTP-404/410-Antworten setzen den TopItaly-Bestand auf 0, sofern keine aktuelle Seite mit derselben EAN gefunden wurde.
+* Vorübergehende Abruffehler und fehlerhafte Sitemaps behalten den letzten bekannten Bestand bei.
+* Für zügige Hintergrund-Batches WordPress-Cron serverseitig einmal pro Minute aufrufen; der Lieferantenabgleich bleibt im Drei-Stunden-Takt.
 
 == Fixes / Neu in 0.5.13 ==
 

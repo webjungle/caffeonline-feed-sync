@@ -40,6 +40,9 @@ jobs:
             -name '*.php' -print0 \
             | xargs -0 -n1 php -l
 
+      - name: Test TopItaly cron and stock refresh
+        run: php tests/topitaly-cron.php
+
       - name: Build release ZIP
         run: composer run build
 
