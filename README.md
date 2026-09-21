@@ -10,6 +10,7 @@ WooCommerce plugin for syncing the CaffeOnline supplier feed by GTIN/EAN/SKU.
 - TopItaly sitemap scanner with parallel product-page fetching, EAN/SKU matching, stock extraction, and manual per-product TopItaly purchase prices.
 - Batch sync for CaffeOnline supplier stock, vendor SKU, and purchase prices.
 - 3-hour supplier cron for stock and purchase-price updates.
+- TopItaly starts a fresh sitemap cycle every three hours and resumes unfinished scans. Database locking prevents concurrent cron/AJAX batches; failed sitemap discovery preserves existing supplier data.
 - Purchase-price change log with source, old/new price, difference, and percentage change.
 - Missing-product scan with draft-safe product import helpers.
 - GitHub Release based updates through `yahnis-elsts/plugin-update-checker`.
@@ -41,6 +42,7 @@ composer validate --strict
 composer install
 find . -path './vendor' -prune -o -path './dist' -prune -o -name '*.php' -print0 | xargs -0 -n1 php -l
 composer run validate-version
+php tests/topitaly-cron.php
 composer run build
 ```
 

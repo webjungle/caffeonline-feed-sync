@@ -147,17 +147,62 @@ class COFS_Multi_Supplier_Stock {
 
     public static function cron_run() : void {
         self::sync_caffeonline_feed();
-        if ( self::is_enabled() ) self::process_topitaly_scan();
+        if ( ! self::is_enabled() ) return;
+
+        // Resume an unfinished scan, or discover fresh URLs for the next cycle.
+        $started = self::start_topitaly_scan( false );
+        if ( ! empty( $started['ok'] ) ) self::process_topitaly_scan();
     }
 
     public static function start_topitaly_scan( bool $schedule_fallback = true ) : array {
         if ( ! self::is_enabled() ) return [ 'ok' => false, 'message' => __( 'TopItaly ist noch nicht aktiviert oder die Sitemap-URL fehlt.', 'caffeonline-feed-sync' ) ];
-        $urls = self::discover_topitaly_urls();
-        if ( is_wp_error( $urls ) ) return [ 'ok' => false, 'message' => $urls->get_error_message() ];
+        return self::with_topitaly_scan_lock( static function() use ( $schedule_fallback ) {
+            return self::start_topitaly_scan_locked( $schedule_fallback );
+        } );
+    }
 
-        update_option( self::TOPITALY_STATE, [ 'urls' => array_values( $urls ), 'offset' => 0, 'total' => count( $urls ), 'matched_items' => 0, 'error_count' => 0, 'last_errors' => [], 'started_at' => time(), 'updated_at' => time() ], false );
-        if ( $schedule_fallback ) wp_schedule_single_event( time() + 5, self::SCAN_HOOK );
+    private static function start_topitaly_scan_locked( bool $schedule_fallback ) : array {
+        $state = self::get_topitaly_state();
+        $urls = isset( $state['urls'] ) && is_array( $state['urls'] ) ? $state['urls'] : [];
+        $offset = max( 0, (int) ( $state['offset'] ?? 0 ) );
+        if ( $urls && $offset < count( $urls ) ) {
+            if ( $schedule_fallback ) self::schedule_topitaly_step( 5 );
+            return [ 'ok' => true, 'total' => count( $urls ), 'offset' => $offset, 'resumed' => true ];
+        }
+
+        $urls = self::discover_topitaly_urls();
+        if ( is_wp_error( $urls ) || empty( $urls ) ) {
+            $message = is_wp_error( $urls ) ? $urls->get_error_message() : __( 'Die TopItaly-Sitemap enthält keine abrufbaren URLs.', 'caffeonline-feed-sync' );
+            // Preserve the previous result and supplier stocks if discovery fails.
+            $state['last_start_error'] = $message;
+            $state['last_start_attempt_at'] = time();
+            update_option( self::TOPITALY_STATE, $state, false );
+            return [ 'ok' => false, 'message' => $message ];
+        }
+
+        update_option( self::TOPITALY_STATE, [ 'urls' => array_values( $urls ), 'offset' => 0, 'total' => count( $urls ), 'matched_items' => 0, 'error_count' => 0, 'last_errors' => [], 'started_at' => time(), 'updated_at' => time(), 'completed_at' => 0 ], false );
+        if ( $schedule_fallback ) self::schedule_topitaly_step( 5 );
         return [ 'ok' => true, 'total' => count( $urls ) ];
+    }
+
+    private static function schedule_topitaly_step( int $delay = 10 ) : void {
+        if ( ! wp_next_scheduled( self::SCAN_HOOK ) ) {
+            wp_schedule_single_event( time() + $delay, self::SCAN_HOOK );
+        }
+    }
+
+    private static function with_topitaly_scan_lock( callable $callback ) : array {
+        global $wpdb;
+        $name = 'cofs_topitaly_' . md5( DB_NAME . '|' . $wpdb->prefix );
+        // A connection-scoped DB lock also covers parallel AJAX and cron requests.
+        if ( '1' !== (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $name ) ) ) {
+            return [ 'ok' => false, 'busy' => true, 'processed' => 0, 'finished' => false, 'errors' => [], 'message' => __( 'Ein TopItaly-Abgleich läuft bereits.', 'caffeonline-feed-sync' ) ];
+        }
+        try {
+            return $callback();
+        } finally {
+            $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) );
+        }
     }
 
     public static function get_topitaly_state() : array {
@@ -166,6 +211,13 @@ class COFS_Multi_Supplier_Stock {
     }
 
     public static function process_topitaly_scan() : array {
+        if ( ! self::is_enabled() ) return [ 'processed' => 0, 'finished' => true, 'errors' => [] ];
+        $result = self::with_topitaly_scan_lock( [ __CLASS__, 'process_topitaly_scan_locked' ] );
+        if ( ! empty( $result['busy'] ) ) self::schedule_topitaly_step();
+        return $result;
+    }
+
+    private static function process_topitaly_scan_locked() : array {
         $state = self::get_topitaly_state();
         $urls = isset( $state['urls'] ) && is_array( $state['urls'] ) ? $state['urls'] : [];
         $offset = max( 0, (int) ( $state['offset'] ?? 0 ) );
@@ -196,9 +248,14 @@ class COFS_Multi_Supplier_Stock {
         $state['matched_items'] = (int) ( $state['matched_items'] ?? 0 ) + $matched;
         $state['error_count'] = (int) ( $state['error_count'] ?? 0 ) + count( $errors );
         $state['last_errors'] = array_slice( array_merge( (array) ( $state['last_errors'] ?? [] ), $errors ), -10 );
+        if ( $state['offset'] >= count( $urls ) ) $state['completed_at'] = time();
         update_option( self::TOPITALY_STATE, $state, false );
 
-        if ( $state['offset'] < count( $urls ) ) wp_schedule_single_event( time() + 10, self::SCAN_HOOK );
+        if ( $state['offset'] < count( $urls ) ) {
+            self::schedule_topitaly_step();
+        } else {
+            wp_clear_scheduled_hook( self::SCAN_HOOK );
+        }
         return [ 'processed' => count( $batch ), 'offset' => (int) $state['offset'], 'total' => count( $urls ), 'matched' => $matched, 'matched_total' => (int) $state['matched_items'], 'errors' => $errors, 'last_errors' => (array) $state['last_errors'], 'error_count' => (int) $state['error_count'], 'finished' => $state['offset'] >= count( $urls ) ];
     }
 
