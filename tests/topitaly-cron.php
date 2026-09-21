@@ -31,8 +31,12 @@ function esc_url_raw( $url ) { return $url; }
 function is_wp_error( $value ) { return $value instanceof WP_Error; }
 function wc_get_product( $id ) { return null; } // Woo persistence is checked on the real import.
 function get_post_meta( $id, $key, $single = false ) { return ''; }
-function get_option( $key, $default = false ) { return $GLOBALS['options'][ $key ] ?? $default; }
-function update_option( $key, $value, $autoload = null ) { $GLOBALS['options'][ $key ] = $value; return true; }
+function get_option( $key, $default = false ) {
+    if ( array_key_exists( $key, $GLOBALS['option_cache'] ) ) return $GLOBALS['option_cache'][ $key ];
+    return $GLOBALS['option_cache'][ $key ] = $GLOBALS['options'][ $key ] ?? $default;
+}
+function update_option( $key, $value, $autoload = null ) { $GLOBALS['option_cache'][ $key ] = $GLOBALS['options'][ $key ] = $value; return true; }
+function wp_cache_delete( $key, $group ) { unset( $GLOBALS['option_cache'][ $key ] ); }
 function wp_next_scheduled( $hook ) { return $GLOBALS['events'][ $hook ]['time'] ?? false; }
 function wp_schedule_single_event( $time, $hook ) {
     $GLOBALS['scheduled_calls']++;
@@ -59,6 +63,7 @@ function reset_case() {
     $GLOBALS['wpdb'] = new Test_DB();
     $GLOBALS['options'] = [ 'cofs_settings' => [ 'topitaly_enabled' => 1, 'topitaly_sitemap_url' => 'https://source.test/sitemap.xml', 'topitaly_batch_size' => 1 ] ];
     $GLOBALS['events'] = [];
+    $GLOBALS['option_cache'] = [];
     $GLOBALS['scheduled_calls'] = 0;
     $GLOBALS['requests'] = [];
     $GLOBALS['responses'] = [
@@ -140,11 +145,22 @@ scenario( 'Exception releases the database lock', function() {
     $GLOBALS['responses']['https://source.test/sitemap.xml'] = function() { throw new RuntimeException( 'network exception' ); };
     try { COFS_Multi_Supplier_Stock::start_topitaly_scan(); } catch ( RuntimeException $error ) { expect( $error->getMessage() === 'network exception', 'Unexpected exception' ); }
 } );
+scenario( 'Next locked batch reads progress committed by another request', function() {
+    COFS_Multi_Supplier_Stock::cron_run();
+    $count = count( $GLOBALS['requests'] );
+    // Simulate a second process completing the scan outside this request cache.
+    $GLOBALS['options'][ COFS_Multi_Supplier_Stock::TOPITALY_STATE ]['offset'] = 2;
+    $result = COFS_Multi_Supplier_Stock::process_topitaly_scan();
+    expect( $result['finished'] && $result['offset'] === 2, 'Read stale request-local scan progress' );
+    expect( count( $GLOBALS['requests'] ) === $count, 'Repeated a batch another worker already processed' );
+} );
 scenario( 'Disabled TopItaly does not continue pending imports', function() {
     COFS_Multi_Supplier_Stock::cron_run();
     $state = COFS_Multi_Supplier_Stock::get_topitaly_state();
     $count = count( $GLOBALS['requests'] );
-    $GLOBALS['options']['cofs_settings']['topitaly_enabled'] = 0;
+    $settings = get_option( 'cofs_settings' );
+    $settings['topitaly_enabled'] = 0;
+    update_option( 'cofs_settings', $settings );
     COFS_Multi_Supplier_Stock::cron_run();
     COFS_Multi_Supplier_Stock::process_topitaly_scan();
     expect( $state === COFS_Multi_Supplier_Stock::get_topitaly_state() && count( $GLOBALS['requests'] ) === $count, 'Disabled source was processed' );

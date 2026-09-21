@@ -199,6 +199,10 @@ class COFS_Multi_Supplier_Stock {
             return [ 'ok' => false, 'busy' => true, 'processed' => 0, 'finished' => false, 'errors' => [], 'message' => __( 'Ein TopItaly-Abgleich läuft bereits.', 'caffeonline-feed-sync' ) ];
         }
         try {
+            // Another worker may have advanced the scan since this request started.
+            foreach ( [ self::TOPITALY_STATE, self::TOPITALY_CACHE, 'cron', 'notoptions' ] as $key ) {
+                wp_cache_delete( $key, 'options' );
+            }
             return $callback();
         } finally {
             $wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $name ) );
