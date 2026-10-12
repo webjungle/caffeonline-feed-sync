@@ -522,7 +522,7 @@ class COFS_Scraper {
      */
     private function apply_stock_and_price( int $product_id, array $scraped, $feed_stock = null, bool $is_variable_parent = false ) : void {
         // Price
-        if ( ! empty( $scraped['price'] ) && 'oziicaffe' !== get_post_meta( $product_id, '_cofs_retail_price_supplier', true ) ) {
+        if ( ! empty( $scraped['price'] ) && 'oziicaffe' !== get_post_meta( $product_id, '_cofs_retail_price_supplier', true ) && 'thali' !== get_post_meta( $product_id, '_cofs_content_supplier', true ) && 'thali' !== get_post_meta( $product_id, '_cofs_uvp_supplier', true ) ) {
             $price = wc_format_decimal( (string) $scraped['price'] );
             if ( $price !== '' ) {
                 update_post_meta( $product_id, '_regular_price', $price );

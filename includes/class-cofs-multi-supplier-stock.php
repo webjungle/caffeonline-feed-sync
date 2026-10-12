@@ -428,7 +428,9 @@ class COFS_Multi_Supplier_Stock {
             $sku = trim( (string) $feed->col( $row, [ 'SKU', 'sku' ] ) );
             $stock = $feed->col( $row, [ 'Stock', 'stock', 'qty', 'quantity', 'Quantity' ] );
             if ( '' === $ean && '' === $sku ) continue;
-            $product_id = self::find_product_id( [ $ean, $sku ] );
+            // Exact supplier SKU avoids attaching a colour variant via a stale GTIN.
+            $product_id = self::find_product_id( [ $sku ] );
+            if ( ! $product_id ) $product_id = self::find_product_id( [ $ean ] );
             if ( ! $product_id ) continue;
             $candidate = [ 'supplier' => 'caffeonline', 'sku' => $sku, 'ean' => $ean, 'stock' => '' === $stock ? 0 : max( 0, (int) $stock ), 'purchase_price' => self::decimal_from_text( (string) $feed->col( $row, [ 'Purchase', 'purchase', 'Purchase Price', 'purchase_price', 'Einkaufspreis', 'EK', 'Cost', 'cost' ] ) ), 'updated_at' => time() ];
             self::apply_supplier_candidate( $product_id, $candidate, $result );

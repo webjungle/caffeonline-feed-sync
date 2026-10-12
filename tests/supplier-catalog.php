@@ -11,6 +11,17 @@ function sanitize_key( $key ) { return preg_replace( '/[^a-z0-9_-]/', '', strtol
 function expect( $condition, $message ) { if ( ! $condition ) throw new RuntimeException( $message ); echo "PASS: $message\n"; }
 require dirname( __DIR__ ) . '/includes/class-cofs-catalog-parser.php';
 require dirname( __DIR__ ) . '/includes/class-cofs-multi-supplier-stock.php';
+require dirname( __DIR__ ) . '/includes/class-cofs-supplier-catalog.php';
+function wc_prices_include_tax() { return true; }
+class WC_Product {
+    public $meta = [], $regular = '', $sale = '99.00';
+    public function get_meta( $key ) { return $this->meta[ $key ] ?? ''; }
+    public function update_meta_data( $key, $value ) { $this->meta[ $key ] = $value; }
+    public function set_regular_price( $price ) { $this->regular = $price; }
+    public function set_sale_price( $price ) { $this->sale = $price; }
+    public function set_date_on_sale_from( $date ) {}
+    public function set_date_on_sale_to( $date ) {}
+}
 $choose = new ReflectionMethod( 'COFS_Multi_Supplier_Stock', 'choose_active_supplier' );
 $effective = new ReflectionMethod( 'COFS_Multi_Supplier_Stock', 'effective_supplier_stock' );
 if ( PHP_VERSION_ID < 80100 ) { $choose->setAccessible( true ); $effective->setAccessible( true ); }
@@ -49,4 +60,20 @@ expect( '299.90' === $item['retail_price'] && '349.90' === $item['regular_retail
 expect( ! COFS_Catalog_Parser::valid_url( 'thali', 'https://www.thali.ch.attacker.test/item' ), 'Supplier requests reject lookalike domains' );
 $listing = '<nav><a href="/de/shop/haushalt/kaffee/pads">Category</a></nav><table><tbody><tr><td><a href="/de/shop/haushalt/kaffee/pads/aroma-strong">Product</a></td></tr></tbody></table>';
 expect( count( COFS_Catalog_Parser::listing( 'thali', $listing, 'https://www.thali.ch/de/shop/haushalt/kaffee/pads' )['products'] ) === 1, 'Discovery excludes navigation categories' );
-echo "20 supplier catalogue scenarios passed.\n";
+$product = new WC_Product();
+$product->meta = [ '_cofs_retail_price_supplier' => 'oziicaffe', '_cofs_retail_price' => '349.90' ];
+COFS_Supplier_Catalog::apply_ozii_retail_price( $product );
+expect( '384.89' === $product->regular && '349.90' === $product->get_meta( '_cofs_retail_base_price' ) && '' === $product->sale, 'Approved Ozii retail receives exactly 10 percent and replaces stale sale prices' );
+COFS_Supplier_Catalog::apply_ozii_retail_price( $product );
+expect( '384.89' === $product->regular, 'Repeated supplier runs never compound the Ozii markup' );
+$product->meta['_cofs_retail_base_price'] = '159.99';
+COFS_Supplier_Catalog::apply_ozii_retail_price( $product );
+expect( '175.99' === $product->regular, 'Manual base changes calculate the new selling price rounded to cents' );
+$product->meta['_cofs_content_supplier'] = 'thali'; $product->regular = '219.00';
+COFS_Supplier_Catalog::apply_ozii_retail_price( $product );
+expect( '219.00' === $product->regular, 'Thali master UVP stays authoritative even when Ozii supplies stock' );
+$product = new WC_Product();
+$product->meta = [ '_cofs_oziicaffe_regular_retail_price' => '159.90' ];
+COFS_Supplier_Catalog::apply_ozii_retail_price( $product );
+expect( '' === $product->regular, 'Unapproved Ozii source prices cannot replace an existing shop price' );
+echo "25 supplier catalogue scenarios passed.\n";

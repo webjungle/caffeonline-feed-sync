@@ -1,5 +1,10 @@
 === webjungle Supplier Sync ===
-Stable tag: 0.6.2
+Stable tag: 0.6.3
+
+== Neu in 0.6.3 ==
+
+* Ozii-Verkaufspreise erhalten 10 % Aufschlag auf den freigegebenen Endkunden-Basispreis. Wiederholte Läufe erhöhen den Preis nicht erneut; der Basispreis bleibt manuell pflegbar.
+* Thali-UVP bleibt bei Ersatzlieferung durch Ozii geschützt. CaffeOnline-Bestand wird zuerst über die genaue Lieferanten-SKU zugeordnet.
 
 == Neu in 0.6.2 ==
 

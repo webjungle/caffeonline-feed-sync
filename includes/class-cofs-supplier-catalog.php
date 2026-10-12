@@ -7,6 +7,7 @@ class COFS_Supplier_Catalog {
     const CACHE = 'cofs_catalog_items';
     const DEALER = 'cofs_thali_dealer_data';
     const STEP = 'cofs_catalog_scan_step';
+    const OZII_RETAIL_MARKUP_PERCENT = 10;
 
     public static function categories() : array {
         $root = 'https://www.thali.ch/de/shop/haushalt/';
@@ -220,8 +221,7 @@ class COFS_Supplier_Catalog {
         }
         foreach ( [ 'sku', 'ean', 'url', 'uvp' ] as $field ) if ( isset( $item[ $field ] ) ) $product->update_meta_data( '_cofs_' . $supplier . '_' . $field, $item[ $field ] );
         if ( 'oziicaffe' === $supplier ) {
-            // Keep the latest public source price for review; approved shop prices
-            // are changed manually and must never become private purchase costs.
+            // Keep fresh supplier prices separate from the manually approved base.
             foreach ( [ 'retail_price', 'regular_retail_price' ] as $field ) if ( ! empty( $item[ $field ] ) ) $product->update_meta_data( '_cofs_oziicaffe_' . $field, $item[ $field ] );
             $product->update_meta_data( '_cofs_oziicaffe_retail_checked_at', (int) ( $item['updated_at'] ?? time() ) );
         }
@@ -248,8 +248,12 @@ class COFS_Supplier_Catalog {
             $product->set_date_on_sale_to( null );
             self::attributes( $product, $item );
         } elseif ( $created ) {
-            $product->set_regular_price( $item['retail_price'] ?? '' );
+            $product->update_meta_data( '_cofs_retail_price_supplier', 'oziicaffe' );
+            $product->update_meta_data( '_cofs_retail_base_price', $item['regular_retail_price'] ?? $item['retail_price'] ?? '' );
+            $product->update_meta_data( '_cofs_retail_price_source', $item['url'] );
+            $product->update_meta_data( '_cofs_retail_price_checked_at', (int) ( $item['updated_at'] ?? time() ) );
         }
+        if ( 'oziicaffe' === $supplier ) self::apply_ozii_retail_price( $product );
         $product->save();
         if ( 'thali' === $supplier || $created ) {
             self::categories_for_product( $id, $item );
@@ -261,6 +265,26 @@ class COFS_Supplier_Catalog {
             $product = wc_get_product( $id ); $product->set_status( 'publish' ); $product->delete_meta_data( '_cofs_catalog_pending_publish' ); $product->save();
         }
         return [ 'product_id' => $id, 'created' => $created ];
+    }
+
+    /** Reuses the approved gross base, never the marked-up shop price or an EK. */
+    public static function apply_ozii_retail_price( WC_Product $product ) : void {
+        if ( 'oziicaffe' !== $product->get_meta( '_cofs_retail_price_supplier' ) || 'thali' === $product->get_meta( '_cofs_content_supplier' ) || 'thali' === $product->get_meta( '_cofs_uvp_supplier' ) ) return;
+        $base = COFS_Catalog_Parser::decimal( (string) $product->get_meta( '_cofs_retail_base_price' ) );
+        // Migrate previously approved Ozii prices once; subsequent runs use base.
+        if ( ! $base && ! $product->get_meta( '_cofs_retail_markup_percent' ) ) $base = COFS_Catalog_Parser::decimal( (string) $product->get_meta( '_cofs_retail_price' ) );
+        if ( ! $base ) return;
+        $gross = number_format( round( (float) $base * ( 1 + self::OZII_RETAIL_MARKUP_PERCENT / 100 ), 2 ), 2, '.', '' );
+        $price = $gross;
+        if ( ! wc_prices_include_tax() && $product->is_taxable() ) $price = (float) $gross - array_sum( WC_Tax::calc_tax( $gross, WC_Tax::get_base_tax_rates( $product->get_tax_class() ), true ) );
+        $product->update_meta_data( '_cofs_retail_base_price', $base );
+        $product->update_meta_data( '_cofs_retail_markup_percent', self::OZII_RETAIL_MARKUP_PERCENT );
+        $product->update_meta_data( '_cofs_retail_price', $gross );
+        $product->update_meta_data( '_cofs_retail_price_includes_tax', 'yes' );
+        $product->set_regular_price( $price );
+        $product->set_sale_price( '' );
+        $product->set_date_on_sale_from( null );
+        $product->set_date_on_sale_to( null );
     }
 
     private static function with_dealer_data( array $item ) : array {
@@ -438,9 +462,12 @@ class COFS_Supplier_Catalog {
         $sources = get_post_meta( $post->ID, COFS_Multi_Supplier_Stock::META_SOURCES, true );
         $uvp = get_post_meta( $post->ID, '_cofs_uvp', true );
         $retail = get_post_meta( $post->ID, '_cofs_retail_price', true );
+        if ( 'oziicaffe' === get_post_meta( $post->ID, '_cofs_retail_price_supplier', true ) ) {
+            woocommerce_wp_text_input( [ 'id' => '_cofs_retail_base_price', 'label' => 'Ozii Basispreis CHF inkl. MwSt.', 'data_type' => 'price', 'value' => get_post_meta( $post->ID, '_cofs_retail_base_price', true ), 'description' => 'Freigegebener Ozii-Endkundenpreis. Der Shoppreis enthält zusätzlich 10 % Aufschlag.', 'desc_tip' => true ] );
+        }
         echo '<p class="form-field">Aktiver Lieferant: <strong>' . esc_html( get_post_meta( $post->ID, COFS_Multi_Supplier_Stock::META_ACTIVE, true ) ) . '</strong>';
         if ( $uvp ) echo '<br>UVP: CHF ' . esc_html( $uvp ) . ' inkl. MwSt.';
-        elseif ( $retail ) echo '<br>Geprüfter Verkaufspreis: CHF ' . esc_html( $retail ) . ' inkl. MwSt. (Ozii Endkundenpreis, keine bestätigte Hersteller-UVP)';
+        elseif ( $retail ) echo '<br>Verkaufspreis: CHF ' . esc_html( $retail ) . ' inkl. MwSt. (Ozii Basispreis + ' . esc_html( get_post_meta( $post->ID, '_cofs_retail_markup_percent', true ) ?: '0' ) . ' %, keine bestätigte Hersteller-UVP)';
         echo '</p>';
         foreach ( (array) $sources as $supplier => $source ) if ( is_array( $source ) ) echo '<p class="form-field">' . esc_html( $supplier . ' · Artikel ' . ( $source['sku'] ?? '' ) . ' · EK ' . ( $source['purchase_price'] ?? 'fehlt' ) . ' · geprüft ' . ( ! empty( $source['purchase_checked_at'] ) ? wp_date( 'd.m.Y H:i', $source['purchase_checked_at'] ) : '—' ) ) . '</p>';
         echo '</div>';
@@ -448,6 +475,10 @@ class COFS_Supplier_Catalog {
 
     public static function save_fields( $product ) : void {
         if ( ! $product instanceof WC_Product ) return;
+        if ( 'oziicaffe' === $product->get_meta( '_cofs_retail_price_supplier' ) && isset( $_POST['_cofs_retail_base_price'] ) ) {
+            $base = COFS_Catalog_Parser::decimal( wp_unslash( $_POST['_cofs_retail_base_price'] ) );
+            if ( $base ) { $product->update_meta_data( '_cofs_retail_base_price', $base ); self::apply_ozii_retail_price( $product ); }
+        }
         foreach ( [ 'thali', 'oziicaffe' ] as $supplier ) {
             $key = '_cofs_' . $supplier . '_url';
             if ( isset( $_POST[ $key ] ) ) { $url = esc_url_raw( wp_unslash( $_POST[ $key ] ) ); if ( ! $url || COFS_Catalog_Parser::valid_url( $supplier, $url ) ) $product->update_meta_data( $key, $url ); }
