@@ -1,5 +1,12 @@
 === webjungle Supplier Sync ===
-Stable tag: 0.6.0
+Stable tag: 0.6.1
+
+== Neu in 0.6.1 ==
+
+* Ozii-Aktionspreise und reguläre Endkundenpreise werden getrennt erfasst; beide bleiben von Hersteller-UVP und Einkaufspreis getrennt.
+* Manuell freigegebene Ozii-Verkaufspreise und Produkttexte werden beim TopItaly-Abgleich beibehalten.
+* Geprüfte Ozii-Verkaufspreise sind in der Produktverwaltung mit ihrer Preisquelle erkennbar.
+* Der CaffeOnline-Einzelimport erkennt vorhandene EAN auch bei abweichenden Shop-SKU und bewahrt freigegebene Ozii-Verkaufspreise.
 
 == Neu in 0.6.0 ==
 

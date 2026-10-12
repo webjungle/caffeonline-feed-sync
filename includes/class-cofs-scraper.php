@@ -398,6 +398,11 @@ class COFS_Scraper {
         // 1) Existierendes Produkt mit dieser SKU? → updaten
         if ( $base_sku !== '' ) {
             $existing_id = wc_get_product_id_by_sku( $base_sku );
+            if ( ! $existing_id && preg_match( '/^\d{8,14}$/', $base_sku ) ) {
+                $matches = get_posts( [ 'post_type' => [ 'product', 'product_variation' ], 'post_status' => [ 'publish', 'draft', 'private', 'pending' ], 'numberposts' => 2, 'fields' => 'ids', 'meta_key' => '_global_unique_id', 'meta_value' => $base_sku ] );
+                if ( count( $matches ) > 1 ) return new WP_Error( 'cofs_duplicate_ean', 'Mehrere Produkte mit derselben EAN vorhanden. Bitte zuerst die Zuordnung bereinigen.' );
+                if ( count( $matches ) === 1 ) $existing_id = (int) $matches[0];
+            }
             if ( $existing_id ) {
                 if ( ! empty( $scraped['title'] ) ) {
                     wp_update_post(
@@ -517,7 +522,7 @@ class COFS_Scraper {
      */
     private function apply_stock_and_price( int $product_id, array $scraped, $feed_stock = null, bool $is_variable_parent = false ) : void {
         // Price
-        if ( ! empty( $scraped['price'] ) ) {
+        if ( ! empty( $scraped['price'] ) && 'oziicaffe' !== get_post_meta( $product_id, '_cofs_retail_price_supplier', true ) ) {
             $price = wc_format_decimal( (string) $scraped['price'] );
             if ( $price !== '' ) {
                 update_post_meta( $product_id, '_regular_price', $price );

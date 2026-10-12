@@ -4,7 +4,7 @@
  * Plugin URI:  https://github.com/webjungle/caffeonline-feed-sync
  * Description: WooCommerce Lieferanten-Sync für Thali, CaffeOnline, Ozii Caffè und TopItaly: Produktdaten, UVP, Einkaufspreise und Lager.
  * Author: webjungle
- * Version: 0.6.0
+ * Version: 0.6.1
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Text Domain: caffeonline-feed-sync
@@ -12,7 +12,7 @@
  */
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define('COFS_VERSION','0.6.0');
+define('COFS_VERSION','0.6.1');
 define( 'COFS_FILE', __FILE__ );
 define( 'COFS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'COFS_URL', plugin_dir_url( __FILE__ ) );

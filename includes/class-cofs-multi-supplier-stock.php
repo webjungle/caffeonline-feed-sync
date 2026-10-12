@@ -472,12 +472,12 @@ class COFS_Multi_Supplier_Stock {
         update_post_meta( $product_id, '_cofs_topitaly_stock', max( 0, (int) ( $item['stock'] ?? 0 ) ) );
         update_post_meta( $product_id, '_cofs_topitaly_uvp', (string) $item['uvp'] );
         self::sync_topitaly_gtin_fields( $product, (string) $item['ean'] );
-        if ( 'thali' !== get_post_meta( $product_id, '_cofs_content_supplier', true ) ) {
+        if ( ! in_array( get_post_meta( $product_id, '_cofs_content_supplier', true ), [ 'thali', 'oziicaffe' ], true ) ) {
             self::assign_topitaly_categories( $product_id, $item );
             self::apply_topitaly_presentation( $product, $item );
             self::sync_topitaly_images( $product_id, $item );
         }
-        if ( 'thali' !== get_post_meta( $product_id, '_cofs_content_supplier', true ) && 'yes' === get_post_meta( $product_id, '_cofs_topitaly_only', true ) && '' !== (string) $item['uvp'] ) {
+        if ( 'thali' !== get_post_meta( $product_id, '_cofs_content_supplier', true ) && 'oziicaffe' !== get_post_meta( $product_id, '_cofs_retail_price_supplier', true ) && 'yes' === get_post_meta( $product_id, '_cofs_topitaly_only', true ) && '' !== (string) $item['uvp'] ) {
             $product->set_regular_price( (string) $item['uvp'] );
         }
         if ( '' === (string) $product->get_short_description( 'edit' ) && ! empty( $item['description'] ) ) $product->set_short_description( wp_kses_post( $item['description'] ) );

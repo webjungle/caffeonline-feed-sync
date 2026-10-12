@@ -43,7 +43,10 @@ expect( COFS_Catalog_Parser::product( 'thali', str_replace( 'CHF 599.00 inkl. Mw
 $ozii = '<h1>Faber Pro Deluxe</h1><div class="summary"><p class="price">CHF 329.90</p><p class="stock in-stock">5 en stock</p></div><script type="application/ld+json">{"@type":"Product","sku":"FPDB","brand":{"name":"Faber"}}</script>';
 $item = COFS_Catalog_Parser::product( 'oziicaffe', $ozii, 'https://www.oziicaffe.ch/product/faber/' );
 expect( $item['stock'] === 5 && '329.90' === $item['retail_price'] && ! isset( $item['uvp'] ) && ! isset( $item['purchase_price'] ), 'Ozii stock is read, retail price never becomes UVP or purchase cost' );
+$promotion = str_replace( 'CHF 329.90', '<del><bdi>CHF 349.90</bdi></del><ins><bdi>CHF 299.90</bdi></ins>', $ozii );
+$item = COFS_Catalog_Parser::product( 'oziicaffe', $promotion, 'https://www.oziicaffe.ch/product/faber/' );
+expect( '299.90' === $item['retail_price'] && '349.90' === $item['regular_retail_price'] && ! isset( $item['uvp'] ), 'Ozii promotion separates current and normal retail prices without inventing UVP' );
 expect( ! COFS_Catalog_Parser::valid_url( 'thali', 'https://www.thali.ch.attacker.test/item' ), 'Supplier requests reject lookalike domains' );
 $listing = '<nav><a href="/de/shop/haushalt/kaffee/pads">Category</a></nav><table><tbody><tr><td><a href="/de/shop/haushalt/kaffee/pads/aroma-strong">Product</a></td></tr></tbody></table>';
 expect( count( COFS_Catalog_Parser::listing( 'thali', $listing, 'https://www.thali.ch/de/shop/haushalt/kaffee/pads' )['products'] ) === 1, 'Discovery excludes navigation categories' );
-echo "19 supplier catalogue scenarios passed.\n";
+echo "20 supplier catalogue scenarios passed.\n";

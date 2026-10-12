@@ -219,6 +219,12 @@ class COFS_Supplier_Catalog {
             if ( $manual_cost ) $item['purchase_price'] = $manual_cost;
         }
         foreach ( [ 'sku', 'ean', 'url', 'uvp' ] as $field ) if ( isset( $item[ $field ] ) ) $product->update_meta_data( '_cofs_' . $supplier . '_' . $field, $item[ $field ] );
+        if ( 'oziicaffe' === $supplier ) {
+            // Keep the latest public source price for review; approved shop prices
+            // are changed manually and must never become private purchase costs.
+            foreach ( [ 'retail_price', 'regular_retail_price' ] as $field ) if ( ! empty( $item[ $field ] ) ) $product->update_meta_data( '_cofs_oziicaffe_' . $field, $item[ $field ] );
+            $product->update_meta_data( '_cofs_oziicaffe_retail_checked_at', (int) ( $item['updated_at'] ?? time() ) );
+        }
         if ( ! empty( $item['purchase_price'] ) ) $product->update_meta_data( '_cofs_' . $supplier . '_purchase_price', $item['purchase_price'] );
         if ( 'thali' === $supplier ) {
             $product->update_meta_data( '_thali_source_url', $item['url'] );
@@ -430,7 +436,12 @@ class COFS_Supplier_Catalog {
             woocommerce_wp_text_input( [ 'id' => '_cofs_' . $supplier . '_purchase_price', 'label' => $label . ' EK CHF netto', 'data_type' => 'price', 'value' => get_post_meta( $post->ID, '_cofs_' . $supplier . '_purchase_price', true ) ] );
         }
         $sources = get_post_meta( $post->ID, COFS_Multi_Supplier_Stock::META_SOURCES, true );
-        echo '<p class="form-field">Aktiver Lieferant: <strong>' . esc_html( get_post_meta( $post->ID, COFS_Multi_Supplier_Stock::META_ACTIVE, true ) ) . '</strong><br>UVP: CHF ' . esc_html( get_post_meta( $post->ID, '_cofs_uvp', true ) ) . ' inkl. MwSt.</p>';
+        $uvp = get_post_meta( $post->ID, '_cofs_uvp', true );
+        $retail = get_post_meta( $post->ID, '_cofs_retail_price', true );
+        echo '<p class="form-field">Aktiver Lieferant: <strong>' . esc_html( get_post_meta( $post->ID, COFS_Multi_Supplier_Stock::META_ACTIVE, true ) ) . '</strong>';
+        if ( $uvp ) echo '<br>UVP: CHF ' . esc_html( $uvp ) . ' inkl. MwSt.';
+        elseif ( $retail ) echo '<br>Geprüfter Verkaufspreis: CHF ' . esc_html( $retail ) . ' inkl. MwSt. (Ozii Endkundenpreis, keine bestätigte Hersteller-UVP)';
+        echo '</p>';
         foreach ( (array) $sources as $supplier => $source ) if ( is_array( $source ) ) echo '<p class="form-field">' . esc_html( $supplier . ' · Artikel ' . ( $source['sku'] ?? '' ) . ' · EK ' . ( $source['purchase_price'] ?? 'fehlt' ) . ' · geprüft ' . ( ! empty( $source['purchase_checked_at'] ) ? wp_date( 'd.m.Y H:i', $source['purchase_checked_at'] ) : '—' ) ) . '</p>';
         echo '</div>';
     }

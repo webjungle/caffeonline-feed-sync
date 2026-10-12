@@ -146,7 +146,14 @@ class COFS_Catalog_Parser {
                 elseif ( false !== strpos( $availability, 'InStock' ) ) $item['stock'] = 1;
                 else return new WP_Error( 'cofs_ozii_stock', 'Verfügbarkeit nicht eindeutig: ' . $url );
             }
-            $item['retail_price'] = self::decimal( self::text( $xp, '//div[contains(@class,"summary")]//p[contains(@class,"price")]' ) );
+            $price_query = '//div[contains(@class,"summary")]//p[contains(concat(" ",normalize-space(@class)," ")," price ")]';
+            $price = self::decimal( self::text( $xp, $price_query . '//ins//bdi' ) );
+            if ( ! $price ) $price = self::decimal( self::text( $xp, $price_query . '//bdi' ) );
+            if ( ! $price ) $price = self::decimal( self::text( $xp, $price_query ) );
+            $regular = self::decimal( self::text( $xp, $price_query . '//del//bdi' ) );
+            $item['retail_price'] = $price;
+            // A crossed-out normal retail price is still not a manufacturer UVP.
+            $item['regular_retail_price'] = $regular ?: $price;
             $item['description'] = (string) ( $schema['description'] ?? '' );
             foreach ( $xp->query( '//div[contains(@class,"woocommerce-product-gallery")]//img[@src]' ) as $node ) $item['images'][] = self::absolute_url( $node->getAttribute( 'src' ), $url );
             if ( ! $item['brand'] && preg_match( '/^(Aroma|Faber|Didiesse)\b/i', $title, $match ) ) $item['brand'] = $match[1];

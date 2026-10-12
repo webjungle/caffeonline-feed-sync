@@ -2,7 +2,7 @@
 
 WooCommerce supplier sync for Thali, CaffeOnline, Ozii Caffè and TopItaly. The existing folder, option names and GitHub update channel remain compatible.
 
-**Aktuelle Plugin-Version:** `0.6.0`
+**Aktuelle Plugin-Version:** `0.6.1`
 
 ## Features
 
@@ -60,8 +60,8 @@ composer run build
 Create a semantic version tag:
 
 ```bash
-git tag v0.6.0
-git push --atomic origin main v0.6.0
+git tag v0.6.1
+git push --atomic origin main v0.6.1
 ```
 
 GitHub Actions builds `dist/caffeonline-feed-sync.zip` and attaches it to the release.
