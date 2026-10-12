@@ -87,7 +87,32 @@ class COFS_Catalog_Parser {
         return $html;
     }
 
-    public static function product( string $supplier, string $html, string $url ) {
+    /** Each WooCommerce variation is its own offer; parent minimum prices are unsafe. */
+    public static function products( string $supplier, string $html, string $url ) {
+        if ( 'oziicaffe' === $supplier ) {
+            $xp = self::xpath( $html );
+            $form = $xp->query( '//form[@data-product_variations]' )->item( 0 );
+            if ( $form ) {
+                $variations = json_decode( $form->getAttribute( 'data-product_variations' ), true );
+                if ( ! is_array( $variations ) || ! $variations ) return new WP_Error( 'cofs_ozii_variations', 'Varianten fehlen: ' . $url );
+                $items = [];
+                $parent = explode( '?', $url )[0];
+                foreach ( $variations as $variation ) {
+                    $attributes = (array) ( $variation['attributes'] ?? [] );
+                    if ( empty( $variation['variation_id'] ) || ! $attributes || in_array( '', $attributes, true ) ) return new WP_Error( 'cofs_ozii_variations', 'Variante nicht eindeutig: ' . $url );
+                    ksort( $attributes );
+                    $item = self::product( $supplier, $html, $parent . '?' . http_build_query( $attributes, '', '&', PHP_QUERY_RFC3986 ), $variation );
+                    if ( $item instanceof WP_Error ) return $item;
+                    $items[] = $item;
+                }
+                return $items;
+            }
+        }
+        $item = self::product( $supplier, $html, $url );
+        return $item instanceof WP_Error ? $item : [ $item ];
+    }
+
+    public static function product( string $supplier, string $html, string $url, ?array $variation = null ) {
         $xp = self::xpath( $html );
         $schema = self::structured_product( $xp );
         $title = self::text( $xp, '//h1' );
@@ -96,6 +121,7 @@ class COFS_Catalog_Parser {
         $sku = trim( (string) ( $schema['sku'] ?? '' ) );
         $brand = (string) ( is_array( $schema['brand'] ?? null ) ? ( $schema['brand']['name'] ?? '' ) : ( $schema['brand'] ?? '' ) );
         $item = [ 'supplier' => $supplier, 'url' => $url, 'ean' => $ean, 'sku' => $sku, 'title' => $title, 'brand' => $brand, 'stock_mode' => 'availability', 'removed' => false, 'updated_at' => time(), 'description' => '', 'short_description' => '', 'attributes' => [], 'images' => [] ];
+        $item['product_kind'] = false !== strpos( $url, '/kaffee/pads/' ) || ( 'oziicaffe' === $supplier && preg_match( '/\bdosettes\b/iu', $title ) ) ? 'pads' : 'machine';
         if ( 'thali' === $supplier ) {
             $details = self::text( $xp, '//div[contains(@class,"product-details")]' );
             if ( preg_match( '/Art\.-Nr\.:\s*(\d+)/u', $details, $match ) ) $item['sku'] = $match[1];
@@ -135,6 +161,25 @@ class COFS_Catalog_Parser {
             }
             $item['uvp_source'] = 'thali';
         } else {
+            if ( null === $variation && $xp->query( '//form[@data-product_variations]' )->length ) return new WP_Error( 'cofs_ozii_variations', 'Variablen Artikel nur packungsweise einlesen: ' . $url );
+            if ( $variation ) {
+                $item['parent_url'] = explode( '?', $url )[0];
+                $item['variation_id'] = (int) $variation['variation_id'];
+                // Ozii reuses/omits SKUs between packs. Variation ID is scoped and stable.
+                $item['sku'] = 'variation-' . $item['variation_id'];
+                $item['supplier_sku'] = (string) ( $variation['sku'] ?? '' );
+                $item['ean'] = ''; // A parent barcode must never identify every pack.
+                $item['retail_price'] = self::decimal( (string) ( $variation['display_price'] ?? '' ) );
+                $item['regular_retail_price'] = self::decimal( (string) ( $variation['display_regular_price'] ?? '' ) );
+                if ( ! $item['regular_retail_price'] || ! array_key_exists( 'is_in_stock', $variation ) ) return new WP_Error( 'cofs_ozii_variation_data', 'Variantenpreis oder Bestand fehlt: ' . $url );
+                $item['stock'] = ! empty( $variation['is_in_stock'] ) && ! empty( $variation['is_purchasable'] ) ? 1 : 0;
+                if ( $item['stock'] && preg_match( '/(\d+)\s+en stock/iu', strip_tags( (string) ( $variation['availability_html'] ?? '' ) ), $match ) ) { $item['stock'] = (int) $match[1]; $item['stock_mode'] = 'quantity'; }
+                foreach ( $variation['attributes'] as $name => $value ) {
+                    $item['attributes'][ $name ] = $value;
+                    if ( 'attribute_quantite' === $name && ctype_digit( (string) $value ) ) { $item['pack_quantity'] = (int) $value; $item['title'] .= ' – ' . $value . ' Stück'; }
+                }
+                $item['description'] = (string) ( $schema['description'] ?? '' );
+            } else {
             $stock_text = self::text( $xp, '//p[contains(concat(" ",normalize-space(@class)," ")," stock ")]' );
             if ( preg_match( '/(\d+)\s+en stock/iu', $stock_text, $match ) ) { $item['stock'] = (int) $match[1]; $item['stock_mode'] = 'quantity'; }
             elseif ( preg_match( '/rupture|indisponible|out of stock/iu', $stock_text ) ) $item['stock'] = 0;
@@ -155,6 +200,7 @@ class COFS_Catalog_Parser {
             // A crossed-out normal retail price is still not a manufacturer UVP.
             $item['regular_retail_price'] = $regular ?: $price;
             $item['description'] = (string) ( $schema['description'] ?? '' );
+            }
             foreach ( $xp->query( '//div[contains(@class,"woocommerce-product-gallery")]//img[@src]' ) as $node ) $item['images'][] = self::absolute_url( $node->getAttribute( 'src' ), $url );
             if ( ! $item['brand'] && preg_match( '/^(Aroma|Faber|Didiesse)\b/i', $title, $match ) ) $item['brand'] = $match[1];
         }

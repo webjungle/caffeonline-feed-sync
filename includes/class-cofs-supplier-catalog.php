@@ -13,7 +13,7 @@ class COFS_Supplier_Catalog {
         $root = 'https://www.thali.ch/de/shop/haushalt/';
         return [
             'thali' => [ $root . 'kaffee/pads', $root . 'kaffeemaschinen/filterkaffeemaschine', $root . 'kaffeemaschinen/kaffeemuhle', $root . 'kaffeemaschinen/kaffeebereiter-manuell', $root . 'kaffeemaschinen/kaffeemaschinen-padsystem', $root . 'kaffeemaschinen/milchaufschaumer', $root . 'kaffeemaschinen/kapselmaschine', $root . 'kaffeemaschinen/kaffeemaschinen-zubehor' ],
-            'oziicaffe' => [ 'https://www.oziicaffe.ch/product-category/maschines-a-cafe/aroma/', 'https://www.oziicaffe.ch/product-category/maschines-a-cafe/faber/', 'https://www.oziicaffe.ch/product-category/maschines-a-cafe/didiesse/' ],
+            'oziicaffe' => [ 'https://www.oziicaffe.ch/product-category/maschines-a-cafe/aroma/', 'https://www.oziicaffe.ch/product-category/maschines-a-cafe/faber/', 'https://www.oziicaffe.ch/product-category/maschines-a-cafe/didiesse/', 'https://www.oziicaffe.ch/product-category/cafe/dosettes/' ],
         ];
     }
 
@@ -106,7 +106,7 @@ class COFS_Supplier_Catalog {
                 }
                 if ( ! $state['listings'] ) {
                     $settings = get_option( 'cofs_settings', [] );
-                    foreach ( $cache as $item ) if ( ! empty( $settings[ $item['supplier'] . '_enabled' ] ) && ! empty( $item['url'] ) ) $state['urls'][ $item['url'] ] = $item['supplier'];
+                    foreach ( $cache as $item ) if ( ! empty( $settings[ $item['supplier'] . '_enabled' ] ) && ! empty( $item['url'] ) ) $state['urls'][ $item['parent_url'] ?? $item['url'] ] = $item['supplier'];
                     foreach ( get_posts( [ 'post_type' => 'product', 'post_status' => [ 'publish', 'draft', 'private', 'pending' ], 'numberposts' => -1, 'fields' => 'ids', 'meta_key' => '_thali_source_url' ] ) as $id ) {
                         $url = get_post_meta( $id, '_thali_source_url', true );
                         if ( ! empty( $settings['thali_enabled'] ) && COFS_Catalog_Parser::valid_url( 'thali', $url ) ) $state['urls'][ $url ] = 'thali';
@@ -121,20 +121,28 @@ class COFS_Supplier_Catalog {
                     $html = self::fetch( $supplier, $url );
                     if ( is_wp_error( $html ) ) {
                         $data = (array) $html->get_error_data();
-                        if ( in_array( $data['status'] ?? 0, [ 404, 410 ], true ) && empty( $state['discovery_errors'][ $supplier ] ) && empty( $state['listed'][ $url ] ) ) $state['missing'][ $key ] = true;
+                        if ( in_array( $data['status'] ?? 0, [ 404, 410 ], true ) && empty( $state['discovery_errors'][ $supplier ] ) && empty( $state['listed'][ $url ] ) ) {
+                            foreach ( $cache as $cached_key => $cached ) if ( ( $cached['parent_url'] ?? $cached['url'] ) === $url && $cached['supplier'] === $supplier ) $state['missing'][ $cached_key ] = true;
+                        }
                         else $state['errors'][] = $html->get_error_message();
                     } else {
-                        $item = COFS_Catalog_Parser::product( $supplier, $html, $url );
-                        if ( is_wp_error( $item ) ) $state['errors'][] = $item->get_error_message();
+                        $items = COFS_Catalog_Parser::products( $supplier, $html, $url );
+                        if ( is_wp_error( $items ) ) $state['errors'][] = $items->get_error_message();
                         else {
-                            $item['listed'] = isset( $state['listed'][ $url ] );
-                            $cache[ $key ] = $item;
-                            try {
-                                $sync = self::sync_item( $item );
-                                $cache[ $key ]['product_id'] = $sync['product_id'];
-                                $state['synced'] += $sync['product_id'] ? 1 : 0;
-                                $state['created'] += ! empty( $sync['created'] ) ? 1 : 0;
-                            } catch ( Throwable $error ) { $state['errors'][] = $url . ': ' . $error->getMessage(); }
+                            $seen_items = [];
+                            foreach ( $items as $item ) {
+                                $key = md5( $item['url'] ); $seen_items[ $key ] = true;
+                                $item['listed'] = isset( $state['listed'][ $url ] );
+                                $cache[ $key ] = $item;
+                                try {
+                                    $sync = self::sync_item( $item );
+                                    $cache[ $key ]['product_id'] = $sync['product_id'];
+                                    $state['synced'] += $sync['product_id'] ? 1 : 0;
+                                    $state['created'] += ! empty( $sync['created'] ) ? 1 : 0;
+                                } catch ( Throwable $error ) { $state['errors'][] = $url . ': ' . $error->getMessage(); }
+                            }
+                            // A successfully read parent confirms removal of a missing pack.
+                            foreach ( $cache as $cached_key => $cached ) if ( ! empty( $cached['parent_url'] ) && $cached['parent_url'] === $url && ! isset( $seen_items[ $cached_key ] ) ) $state['missing'][ $cached_key ] = true;
                         }
                     }
                     $state['offset']++;
@@ -162,7 +170,7 @@ class COFS_Supplier_Catalog {
             $item = $cache[ $key ]; $id = (int) ( $item['product_id'] ?? 0 );
             if ( ! $id ) continue;
             $fresh = false;
-            foreach ( $cache as $other_key => $other ) if ( $other_key !== $key && (int) ( $other['product_id'] ?? 0 ) === $id && $other['supplier'] === $item['supplier'] && (int) ( $other['updated_at'] ?? 0 ) >= $state['started_at'] ) $fresh = true;
+            foreach ( $cache as $other_key => $other ) if ( $other_key !== $key && empty( $other['removed'] ) && (int) ( $other['product_id'] ?? 0 ) === $id && $other['supplier'] === $item['supplier'] && (int) ( $other['updated_at'] ?? 0 ) >= $state['started_at'] ) $fresh = true;
             if ( $fresh ) continue;
             $item['removed'] = true; $item['stock'] = 0;
             $cache[ $key ] = $item;
@@ -204,7 +212,7 @@ class COFS_Supplier_Catalog {
         if ( in_array( $id, array_map( 'absint', (array) ( get_option( 'cofs_settings', [] )['excluded_product_ids'] ?? [] ) ), true ) ) return [ 'product_id' => 0, 'created' => false ];
         if ( class_exists( 'COFS_Deleted_Feed_Items' ) && COFS_Deleted_Feed_Items::is_blocked( [ 'sku' => $item['ean'] ?? '', 'global_id' => $item['ean'] ?? '', 'vendor_sku' => $item['sku'], 'source_url' => $item['url'] ] ) ) return [ 'product_id' => 0, 'created' => false ];
         $created = ! $id;
-        if ( $created && ! $create_unidentified && empty( $item['ean'] ) ) return [ 'product_id' => 0, 'created' => false ];
+        if ( $created && ! $create_unidentified && ( empty( $item['ean'] ) || ( 'oziicaffe' === $supplier && 'pads' === ( $item['product_kind'] ?? '' ) ) ) ) return [ 'product_id' => 0, 'created' => false ];
         $product = $id ? wc_get_product( $id ) : new WC_Product_Simple();
         if ( ! $product ) throw new RuntimeException( 'Produkt konnte nicht geladen werden.' );
         if ( $created ) {
@@ -346,9 +354,9 @@ class COFS_Supplier_Catalog {
         if ( 'thali' === $item['supplier'] ) {
             $map = [ '/kaffee/pads/' => [ 'e-s-e-pads' ], '/kaffeemaschinen-padsystem/' => [ 'kaffeemaschinen', 'padsmaschinen' ], '/filterkaffeemaschine/' => [ 'kaffeemaschinen', 'filterkaffeemaschinen' ], '/kaffeemuhle/' => [ 'kaffeemuehle' ], '/kaffeebereiter-manuell/' => [ 'kaffeebereiter-manuell' ], '/milchaufschaumer/' => [ 'milchaufschaeumer' ], '/kapselmaschine/' => [ 'kaffeemaschinen', 'kapselmaschinen' ], '/kaffeemaschinen-zubehor/' => [ 'kaffeemaschinen-zubehoer' ] ];
             foreach ( $map as $path => $values ) if ( false !== strpos( $item['url'], $path ) ) $slugs = array_merge( $slugs, $values );
-        } else $slugs = [ 'kaffeemaschinen', 'padsmaschinen' ];
+        } else $slugs = 'pads' === ( $item['product_kind'] ?? '' ) ? [ 'e-s-e-pads' ] : [ 'kaffeemaschinen', 'padsmaschinen' ];
         if ( 'Aroma' === $item['brand'] ) {
-            $slugs[] = false !== strpos( $item['url'], '/kaffee/pads/' ) ? 'aroma-e-s-e-pads' : 'aroma-padsmaschine';
+            $slugs[] = 'pads' === ( $item['product_kind'] ?? '' ) || false !== strpos( $item['url'], '/kaffee/pads/' ) ? 'aroma-e-s-e-pads' : 'aroma-padsmaschine';
             if ( false !== stripos( $item['title'], 'Iconica' ) ) $slugs[] = 'aroma-iconica';
         }
         $new_categories = [ 'filterkaffeemaschinen' => [ 'Filterkaffeemaschinen', 'kaffeemaschinen' ], 'kaffeebereiter-manuell' => [ 'Manuelle Kaffeebereiter', 'kaffeemaschinen' ], 'kapselmaschinen' => [ 'Kapselmaschinen', 'kaffeemaschinen' ], 'kaffeemaschinen-zubehoer' => [ 'Kaffeemaschinen Zubehör', 'kaffeezubehoer' ] ];
@@ -385,7 +393,7 @@ class COFS_Supplier_Catalog {
 
     public static function register_settings_fields() : void {
         foreach ( [ 'thali' => 'Thali', 'oziicaffe' => 'Ozii Caffè' ] as $supplier => $label ) {
-            add_settings_section( 'cofs_' . $supplier, $label, static function() use ( $supplier ) { echo '<p>' . ( 'thali' === $supplier ? 'Alle acht Kaffeekategorien. Führende Quelle für Produktdaten und UVP; Händler-EK wird separat mit Prüfdatum importiert.' : 'Aroma, Faber und Didiesse inklusive Folgeseiten. EAN oder manuell geprüfte Zuordnung; öffentliche Verkaufspreise sind keine Einkaufspreise oder UVP.' ) . '</p>'; }, 'cofs_settings' );
+            add_settings_section( 'cofs_' . $supplier, $label, static function() use ( $supplier ) { echo '<p>' . ( 'thali' === $supplier ? 'Alle acht Kaffeekategorien. Führende Quelle für Produktdaten und UVP; Händler-EK wird separat mit Prüfdatum importiert.' : 'Aroma, Faber, Didiesse und E.S.E.-Pads inklusive Folgeseiten. Packungsvarianten werden getrennt geprüft; öffentliche Verkaufspreise sind keine Einkaufspreise oder UVP.' ) . '</p>'; }, 'cofs_settings' );
             add_settings_field( $supplier . '_catalog', 'Abgleich und Lager', static function() use ( $supplier ) {
                 $settings = get_option( 'cofs_settings', [] );
                 echo '<label><input type="checkbox" name="cofs_settings[' . esc_attr( $supplier ) . '_enabled]" value="1" ' . checked( ! empty( $settings[ $supplier . '_enabled' ] ), true, false ) . '> Automatischer Katalogabgleich</label><br>';

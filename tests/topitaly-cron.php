@@ -17,6 +17,7 @@ class Test_DB {
     public $busy = false;
     public $locked = false;
     public function prepare( $sql, ...$args ) { return $sql; }
+    public function get_col( $sql ) { return []; }
     public function get_var( $sql ) {
         if ( strpos( $sql, 'GET_LOCK' ) !== false ) {
             if ( $this->busy ) return '0';

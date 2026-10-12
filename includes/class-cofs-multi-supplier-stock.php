@@ -279,8 +279,8 @@ class COFS_Multi_Supplier_Stock {
             $item['stock'] = 0;
             $item['updated_at'] = time();
             $item['unavailable_reason'] = 'http_not_found';
-            $product_id = self::find_product_id( [ $item['ean'] ?? '', $item['sku'] ?? '' ] );
-            if ( ! $product_id || ! self::is_product_in_scope( $product_id ) ) continue;
+            $product_id = self::find_topitaly_product( $item );
+            if ( $product_id <= 0 || ! self::is_product_in_scope( $product_id ) ) continue;
             $sources = get_post_meta( $product_id, self::META_SOURCES, true );
             $source = is_array( $sources ) ? ( $sources['topitaly'] ?? [] ) : [];
             if ( empty( $source['ean'] ) || (string) $source['ean'] !== (string) ( $item['ean'] ?? '' ) ) continue;
@@ -456,7 +456,8 @@ class COFS_Multi_Supplier_Stock {
             self::remove_excluded_topitaly_product( $item );
             return;
         }
-        $product_id = self::find_product_id( [ $item['ean'] ?? '', $item['sku'] ?? '' ] );
+        $product_id = self::find_topitaly_product( $item );
+        if ( $product_id < 0 ) return;
         if ( $product_id && self::is_topitaly_match_blocked( $product_id ) ) {
             self::remove_topitaly_source_from_shared_product( $product_id );
             return;
@@ -479,7 +480,7 @@ class COFS_Multi_Supplier_Stock {
             self::apply_topitaly_presentation( $product, $item );
             self::sync_topitaly_images( $product_id, $item );
         }
-        if ( 'thali' !== get_post_meta( $product_id, '_cofs_content_supplier', true ) && 'oziicaffe' !== get_post_meta( $product_id, '_cofs_retail_price_supplier', true ) && 'yes' === get_post_meta( $product_id, '_cofs_topitaly_only', true ) && '' !== (string) $item['uvp'] ) {
+        if ( 'thali' !== get_post_meta( $product_id, '_cofs_content_supplier', true ) && ! in_array( get_post_meta( $product_id, '_cofs_uvp_supplier', true ), [ 'thali', 'caffeonline', 'caffeonline_feed' ], true ) && 'oziicaffe' !== get_post_meta( $product_id, '_cofs_retail_price_supplier', true ) && 'yes' === get_post_meta( $product_id, '_cofs_topitaly_only', true ) && '' !== (string) $item['uvp'] ) {
             $product->set_regular_price( (string) $item['uvp'] );
         }
         if ( '' === (string) $product->get_short_description( 'edit' ) && ! empty( $item['description'] ) ) $product->set_short_description( wp_kses_post( $item['description'] ) );
@@ -518,8 +519,8 @@ class COFS_Multi_Supplier_Stock {
 
     /** Permanently removes only products which were created exclusively from the excluded TopItaly source. */
     private static function remove_excluded_topitaly_product( array $item ) : void {
-        $product_id = self::find_product_id( [ $item['ean'] ?? '', $item['sku'] ?? '' ] );
-        if ( ! $product_id ) return;
+        $product_id = self::find_topitaly_product( $item );
+        if ( $product_id <= 0 ) return;
 
         if ( 'yes' !== get_post_meta( $product_id, '_cofs_topitaly_only', true ) ) {
             self::remove_topitaly_source_from_shared_product( $product_id );
@@ -609,6 +610,7 @@ class COFS_Multi_Supplier_Stock {
         if ( '' === $ean ) return;
 
         $product_id = $product->get_id();
+        if ( in_array( get_post_meta( $product_id, '_cofs_uvp_supplier', true ), [ 'thali', 'caffeonline', 'caffeonline_feed' ], true ) ) return;
         $is_topitaly_only = 'yes' === get_post_meta( $product_id, '_cofs_topitaly_only', true );
         // Yoast must always receive the GTIN of the currently imported TopItaly item.
         $product->update_meta_data( 'yoast_wpseo_gtin13', $ean );
@@ -705,6 +707,11 @@ class COFS_Multi_Supplier_Stock {
         $type = self::topitaly_product_type( $name, $categories );
         $quantity = '';
         $size = '';
+        // Bonus packs are the total count, not only the number after '+'.
+        if ( 'E.S.E. Pads' === $type && preg_match( '/\b(\d+)\s*\+\s*(\d+)\s*(?=(?:e\.?s\.?e\.?\s*)?pads?\b)/ui', $name, $bonus ) ) {
+            $quantity = (string) ( (int) $bonus[1] + (int) $bonus[2] );
+            $name = str_replace( $bonus[0], '', $name );
+        }
         if ( preg_match( '/\b(\d+)\s*[x×]\s*(\d+(?:[\.,]\d+)?\s*(?:kg|g|ml|cl|l))\b/ui', $name, $match ) ) {
             $quantity = $match[1];
             $size = self::normalize_size_value( $match[2] );
@@ -891,6 +898,22 @@ class COFS_Multi_Supplier_Stock {
         foreach ( array_unique( $ids ) as $attachment_id ) {
             if ( $attachment_id ) wp_delete_attachment( (int) $attachment_id, true );
         }
+    }
+
+    /** Reviewed links and scoped SKUs precede sometimes incorrect supplier barcodes. */
+    private static function find_topitaly_product( array $item ) : int {
+        $links = get_option( 'cofs_catalog_links', [] );
+        $linked = (int) ( $links[ md5( $item['url'] ?? '' ) ] ?? 0 );
+        if ( $linked && ! in_array( get_post_status( $linked ), [ false, 'trash', 'auto-draft' ], true ) ) return $linked;
+        if ( ! empty( $item['sku'] ) ) {
+            global $wpdb;
+            $matches = $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT pm.post_id FROM {$wpdb->postmeta} pm INNER JOIN {$wpdb->posts} p ON p.ID=pm.post_id WHERE pm.meta_key='_cofs_topitaly_sku' AND pm.meta_value=%s AND p.post_type IN ('product','product_variation') AND p.post_status NOT IN ('trash','auto-draft') LIMIT 2", $item['sku'] ) );
+            if ( count( $matches ) > 1 ) return -1; // Ambiguous identity must not create another copy.
+            if ( $matches ) return (int) $matches[0];
+            $id = self::find_product_id( [ $item['sku'] ] );
+            if ( $id ) return $id;
+        }
+        return self::find_product_id( [ $item['ean'] ?? '' ] );
     }
 
     private static function find_product_id( array $identifiers ) : int {

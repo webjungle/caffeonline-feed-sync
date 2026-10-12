@@ -76,4 +76,27 @@ $product = new WC_Product();
 $product->meta = [ '_cofs_oziicaffe_regular_retail_price' => '159.90' ];
 COFS_Supplier_Catalog::apply_ozii_retail_price( $product );
 expect( '' === $product->regular, 'Unapproved Ozii source prices cannot replace an existing shop price' );
-echo "25 supplier catalogue scenarios passed.\n";
+$variations = [
+    [ 'variation_id' => 2125, 'sku' => 'ILLYCLA', 'attributes' => [ 'attribute_quantite' => '18' ], 'display_price' => 8.9, 'display_regular_price' => 8.9, 'is_in_stock' => false, 'is_purchasable' => true, 'availability_html' => '<p>Rupture de stock</p>' ],
+    [ 'variation_id' => 2126, 'sku' => 'ILLYCLA', 'attributes' => [ 'attribute_quantite' => '200' ], 'display_price' => 79.9, 'display_regular_price' => 89.9, 'is_in_stock' => true, 'is_purchasable' => true, 'availability_html' => '<p>5 en stock</p>' ],
+];
+$variable_html = str_replace( [ 'Faber Pro Deluxe', '</h1>' ], [ 'Illy Café dosettes Classico', '</h1><form data-product_variations="' . htmlspecialchars( json_encode( $variations ), ENT_QUOTES ) . '"></form>' ], $ozii );
+$items = COFS_Catalog_Parser::products( 'oziicaffe', $variable_html, 'https://www.oziicaffe.ch/product/illy/' );
+expect( count( $items ) === 2 && $items[0]['stock'] === 0 && $items[1]['stock'] === 5, 'Pack variants use their own stock, never the available parent or other pack' );
+expect( $items[0]['url'] !== $items[1]['url'] && $items[0]['sku'] !== $items[1]['sku'] && ! $items[0]['ean'], 'Repeated parent SKU and GTIN cannot merge separate packs' );
+expect( $items[1]['pack_quantity'] === 200 && $items[1]['regular_retail_price'] === '89.90' && $items[1]['retail_price'] === '79.90' && $items[1]['product_kind'] === 'pads', 'Each pack preserves its quantity and normal retail price' );
+expect( COFS_Catalog_Parser::product( 'oziicaffe', $variable_html, 'https://www.oziicaffe.ch/product/illy/' ) instanceof WP_Error, 'Single-product import rejects a variable parent minimum price' );
+expect( COFS_Catalog_Parser::products( 'oziicaffe', str_replace( htmlspecialchars( json_encode( $variations ), ENT_QUOTES ), 'false', $variable_html ), 'https://www.oziicaffe.ch/product/illy/' ) instanceof WP_Error, 'Incomplete variation data fails without zeroing known stock' );
+function get_post_status( $id ) { return 'publish'; }
+class Identity_DB {
+    public $postmeta = 'wp_postmeta', $posts = 'wp_posts', $matches = [ 58591 ];
+    public function prepare( $sql, ...$args ) { return $sql; }
+    public function get_col( $sql ) { return $this->matches; }
+    public function get_var( $sql ) { throw new RuntimeException( 'Global EAN must not override a scoped SKU' ); }
+}
+$GLOBALS['wpdb'] = new Identity_DB();
+$match = new ReflectionMethod( 'COFS_Multi_Supplier_Stock', 'find_topitaly_product' );
+expect( 58591 === $match->invoke( null, [ 'sku' => 'SW10996', 'ean' => 'wrong-150-pack-ean' ] ), 'TopItaly scoped SKU preserves the 100-pack despite a conflicting barcode' );
+$GLOBALS['wpdb']->matches = [ 58591, 54060 ];
+expect( -1 === $match->invoke( null, [ 'sku' => 'SW10996' ] ), 'Ambiguous scoped SKU blocks creation of another duplicate' );
+echo "32 supplier catalogue scenarios passed.\n";

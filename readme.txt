@@ -1,5 +1,10 @@
 === webjungle Supplier Sync ===
-Stable tag: 0.6.3
+Stable tag: 0.6.4
+
+== Neu in 0.6.4 ==
+* Ozii E.S.E.-Pads mit getrennten Packungsvarianten, Preisen und Beständen.
+* Geprüfte Lieferanten-Links und TopItaly-SKU verhindern Packungs-Dubletten.
+* Geprüfte CaffeOnline-UVP und EAN bleiben bei Ersatzlieferungen erhalten.
 
 == Neu in 0.6.3 ==
 
