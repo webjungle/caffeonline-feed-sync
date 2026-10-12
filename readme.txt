@@ -1,5 +1,9 @@
 === webjungle Supplier Sync ===
-Stable tag: 0.6.1
+Stable tag: 0.6.2
+
+== Neu in 0.6.2 ==
+
+* Lagerort im bisherigen Produktfeld folgt dem aktiven Lieferanten. Bestands- und Versandanzeige bleiben dadurch mit der Lager-Kategorie synchron.
 
 == Neu in 0.6.1 ==
 

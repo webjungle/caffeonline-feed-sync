@@ -995,6 +995,13 @@ class COFS_Multi_Supplier_Stock {
     private static function sync_active_supplier_warehouse( int $product_id, string $supplier ) : void {
         $settings = get_option( 'cofs_settings', [] );
         $selected = absint( $settings[ $supplier . '_warehouse_term_id' ] ?? 0 );
+        // The storefront still reads this field for stock location and dispatch
+        // notices. Keep it aligned even when the category itself is unchanged.
+        $warehouse = $selected ? get_term( $selected, 'product_cat' ) : null;
+        if ( $warehouse && ! is_wp_error( $warehouse ) ) {
+            $location = trim( preg_replace( '/^Lager\s+/iu', '', $warehouse->name ) );
+            if ( '' !== $location ) update_post_meta( $product_id, '_product_vendor', $location );
+        }
         $managed = array_filter( array_map( 'absint', (array) get_post_meta( $product_id, '_cofs_supplier_warehouse_terms', true ) ) );
         $warehouses = array_unique( array_merge( $managed, array_map( 'absint', (array) get_option( 'wswa_whitelisted_term_ids_array', [] ) ), array_map( 'absint', [ $settings['thali_warehouse_term_id'] ?? 0, $settings['caffeonline_warehouse_term_id'] ?? 0, $settings['oziicaffe_warehouse_term_id'] ?? 0, $settings['topitaly_warehouse_term_id'] ?? 0 ] ) ) );
         $assigned = wp_get_object_terms( $product_id, 'product_cat', [ 'fields' => 'ids' ] );
