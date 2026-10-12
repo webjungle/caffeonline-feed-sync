@@ -1,6 +1,6 @@
 {
   "name": "webjungle/caffeonline-feed-sync",
-  "description": "WordPress WooCommerce CaffeOnline feed sync with GitHub release updates.",
+  "description": "WooCommerce supplier sync for Thali, CaffeOnline, Ozii Caffè and TopItaly.",
   "type": "wordpress-plugin",
   "license": "GPL-2.0-or-later",
   "require": {

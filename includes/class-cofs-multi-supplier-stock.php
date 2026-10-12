@@ -2,8 +2,7 @@
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 /**
- * Keeps supplier-specific product data separate. CaffeOnline is always the
- * primary supplier; TopItaly is only used as a stock fallback.
+ * Keeps supplier identities, costs and stock separate from the shop identity.
  */
 class COFS_Multi_Supplier_Stock {
     const CRON_HOOK       = 'cofs_multi_supplier_sync';
@@ -43,7 +42,7 @@ class COFS_Multi_Supplier_Stock {
             'cofs_topitaly',
             __( 'TopItaly Lieferant', 'caffeonline-feed-sync' ),
             function() {
-                echo '<p>' . esc_html__( 'TopItaly wird über die Produktsitemap eingelesen. Die Quelle bleibt je Produkt getrennt von CaffeOnline gespeichert; CaffeOnline bleibt primär, TopItaly ist nur der Fallback bei effektivem CaffeOnline-Bestand 0.', 'caffeonline-feed-sync' ) . '</p>';
+                echo '<p>' . esc_html__( 'TopItaly wird über die Produktsitemap eingelesen und bleibt die letzte Ersatzquelle nach Thali, CaffeOnline und Ozii Caffè.', 'caffeonline-feed-sync' ) . '</p>';
             },
             'cofs_settings'
         );
@@ -147,6 +146,7 @@ class COFS_Multi_Supplier_Stock {
 
     public static function cron_run() : void {
         self::sync_caffeonline_feed();
+        if ( class_exists( 'COFS_Supplier_Catalog' ) ) COFS_Supplier_Catalog::start_cycle();
         if ( ! self::is_enabled() ) return;
 
         // Resume an unfinished scan, or discover fresh URLs for the next cycle.
@@ -472,10 +472,12 @@ class COFS_Multi_Supplier_Stock {
         update_post_meta( $product_id, '_cofs_topitaly_stock', max( 0, (int) ( $item['stock'] ?? 0 ) ) );
         update_post_meta( $product_id, '_cofs_topitaly_uvp', (string) $item['uvp'] );
         self::sync_topitaly_gtin_fields( $product, (string) $item['ean'] );
-        self::assign_topitaly_categories( $product_id, $item );
-        self::apply_topitaly_presentation( $product, $item );
-        self::sync_topitaly_images( $product_id, $item );
-        if ( 'yes' === get_post_meta( $product_id, '_cofs_topitaly_only', true ) && '' !== (string) $item['uvp'] ) {
+        if ( 'thali' !== get_post_meta( $product_id, '_cofs_content_supplier', true ) ) {
+            self::assign_topitaly_categories( $product_id, $item );
+            self::apply_topitaly_presentation( $product, $item );
+            self::sync_topitaly_images( $product_id, $item );
+        }
+        if ( 'thali' !== get_post_meta( $product_id, '_cofs_content_supplier', true ) && 'yes' === get_post_meta( $product_id, '_cofs_topitaly_only', true ) && '' !== (string) $item['uvp'] ) {
             $product->set_regular_price( (string) $item['uvp'] );
         }
         if ( '' === (string) $product->get_short_description( 'edit' ) && ! empty( $item['description'] ) ) $product->set_short_description( wp_kses_post( $item['description'] ) );
@@ -907,15 +909,9 @@ class COFS_Multi_Supplier_Stock {
         $candidate['stock'] = max( 0, (int) ( $candidate['stock'] ?? 0 ) );
         $candidate['updated_at'] = (int) ( $candidate['updated_at'] ?? time() );
         $previous_source = isset( $sources[ $supplier ] ) && is_array( $sources[ $supplier ] ) ? $sources[ $supplier ] : [];
-        $source_changed = empty( $previous_source )
-            || (string) ( $previous_source['sku'] ?? '' ) !== (string) ( $candidate['sku'] ?? '' )
-            || (string) ( $previous_source['ean'] ?? '' ) !== (string) ( $candidate['ean'] ?? '' )
-            || (int) ( $previous_source['stock'] ?? 0 ) !== (int) $candidate['stock']
-            || self::decimal_from_text( (string) ( $previous_source['purchase_price'] ?? '' ) ) !== self::decimal_from_text( (string) ( $candidate['purchase_price'] ?? '' ) );
-        if ( $source_changed ) {
-            $sources[ $supplier ] = $candidate;
-            update_post_meta( $product_id, self::META_SOURCES, $sources );
-        }
+        // A public page cannot replace a verified private dealer cost.
+        $sources[ $supplier ] = array_merge( $previous_source, $candidate );
+        update_post_meta( $product_id, self::META_SOURCES, $sources );
         $active = self::choose_active_supplier( $sources, (string) get_post_meta( $product_id, self::META_ACTIVE, true ) );
         if ( ! $active ) return;
         $active_data = $sources[ $active ];
@@ -923,10 +919,11 @@ class COFS_Multi_Supplier_Stock {
         if ( ! $product ) { $result['errors']++; return; }
         $new_stock = self::effective_supplier_stock( $active, $active_data );
         $old_stock = $product->get_stock_quantity( 'edit' );
-        $changed = ! $product->get_manage_stock( 'edit' ) || (int) $old_stock !== $new_stock || (string) $product->get_stock_status( 'edit' ) !== ( $new_stock > 0 ? 'instock' : 'outofstock' );
+        $manage_stock = 'availability' !== ( $active_data['stock_mode'] ?? 'quantity' );
+        $changed = $product->get_manage_stock( 'edit' ) !== $manage_stock || ( $manage_stock && (int) $old_stock !== $new_stock ) || (string) $product->get_stock_status( 'edit' ) !== ( $new_stock > 0 ? 'instock' : 'outofstock' );
         if ( $changed ) {
-            $product->set_manage_stock( true );
-            $product->set_stock_quantity( $new_stock );
+            $product->set_manage_stock( $manage_stock );
+            $product->set_stock_quantity( $manage_stock ? $new_stock : null );
             $product->set_stock_status( $new_stock > 0 ? 'instock' : 'outofstock' );
         }
         $purchase = self::decimal_from_text( (string) ( $active_data['purchase_price'] ?? '' ) );
@@ -941,6 +938,12 @@ class COFS_Multi_Supplier_Stock {
         }
         $active_sku = (string) ( $active_data['sku'] ?? '' );
         $active_changed = (string) get_post_meta( $product_id, self::META_ACTIVE, true ) !== $active || (string) get_post_meta( $product_id, self::META_ACTIVE_SKU, true ) !== $active_sku;
+        if ( '' === $purchase ) {
+            $product->update_meta_data( '_cofs_purchase_price_missing', 'yes' );
+            if ( $active_changed ) $product->delete_meta_data( '_purchase_price' );
+        } else {
+            $product->delete_meta_data( '_cofs_purchase_price_missing' );
+        }
         if ( $active_changed ) {
             $product->update_meta_data( self::META_ACTIVE, $active );
             $product->update_meta_data( self::META_ACTIVE_SKU, $active_sku );
@@ -958,24 +961,26 @@ class COFS_Multi_Supplier_Stock {
     }
 
     private static function choose_active_supplier( array $sources, string $current ) : string {
-        $caffeonline = isset( $sources['caffeonline'] ) && is_array( $sources['caffeonline'] ) ? $sources['caffeonline'] : null;
-        $topitaly    = isset( $sources['topitaly'] ) && is_array( $sources['topitaly'] ) ? $sources['topitaly'] : null;
+        foreach ( [ 'thali', 'caffeonline', 'oziicaffe', 'topitaly' ] as $supplier ) {
+            if ( isset( $sources[ $supplier ] ) && is_array( $sources[ $supplier ] ) && self::effective_supplier_stock( $supplier, $sources[ $supplier ] ) > 0 ) return $supplier;
+        }
+        foreach ( [ 'thali', 'caffeonline', 'oziicaffe', 'topitaly' ] as $supplier ) {
+            if ( isset( $sources[ $supplier ] ) && is_array( $sources[ $supplier ] ) ) return $supplier;
+        }
+        return isset( $sources[ $current ] ) ? $current : '';
+    }
 
-        // CaffeOnline is the default supplier. A positive CaffeOnline stock
-        // switches back immediately, independent of the TopItaly quantity.
-        if ( $caffeonline && self::effective_supplier_stock( 'caffeonline', $caffeonline ) > 0 ) return 'caffeonline';
-
-        // TopItaly is a backup only when CaffeOnline is out of stock. It is
-        // also the permanent supplier for products not present at CaffeOnline.
-        if ( $topitaly && self::effective_supplier_stock( 'topitaly', $topitaly ) > 0 ) return 'topitaly';
-        if ( $caffeonline ) return 'caffeonline';
-        if ( $topitaly ) return 'topitaly';
-        return $current;
+    public static function sync_supplier_item( int $product_id, array $candidate, $product = null ) : array {
+        $result = self::empty_result();
+        self::apply_supplier_candidate( $product_id, $candidate, $result, $product );
+        return $result;
     }
 
     /** Returns the stock that may be offered in WooCommerce after the source-specific tolerance. */
     private static function effective_supplier_stock( string $supplier, array $data ) : int {
         $stock = max( 0, (int) ( $data['stock'] ?? 0 ) );
+        if ( ! empty( $data['removed'] ) ) return 0;
+        if ( 'availability' === ( $data['stock_mode'] ?? '' ) ) return $stock > 0 ? 1 : 0;
         $settings = get_option( 'cofs_settings', [] );
         $tolerance = max( 0, (int) ( $settings[ sanitize_key( $supplier ) . '_stock_tolerance' ] ?? 0 ) );
         return $stock <= $tolerance ? 0 : $stock;
@@ -991,7 +996,10 @@ class COFS_Multi_Supplier_Stock {
         $settings = get_option( 'cofs_settings', [] );
         $selected = absint( $settings[ $supplier . '_warehouse_term_id' ] ?? 0 );
         $managed = array_filter( array_map( 'absint', (array) get_post_meta( $product_id, '_cofs_supplier_warehouse_terms', true ) ) );
-        if ( $selected && [ $selected ] === array_values( $managed ) && has_term( $selected, 'product_cat', $product_id ) ) return;
+        $warehouses = array_unique( array_merge( $managed, array_map( 'absint', (array) get_option( 'wswa_whitelisted_term_ids_array', [] ) ), array_map( 'absint', [ $settings['thali_warehouse_term_id'] ?? 0, $settings['caffeonline_warehouse_term_id'] ?? 0, $settings['oziicaffe_warehouse_term_id'] ?? 0, $settings['topitaly_warehouse_term_id'] ?? 0 ] ) ) );
+        $assigned = wp_get_object_terms( $product_id, 'product_cat', [ 'fields' => 'ids' ] );
+        $managed = is_wp_error( $assigned ) ? $managed : array_values( array_intersect( $warehouses, $assigned ) );
+        if ( $selected && [ $selected ] === array_values( $managed ) && has_term( $selected, 'product_cat', $product_id ) ) { update_post_meta( $product_id, '_cofs_supplier_warehouse_terms', [ $selected ] ); return; }
         if ( ! $selected && empty( $managed ) ) return;
         if ( ! empty( $managed ) ) wp_remove_object_terms( $product_id, $managed, 'product_cat' );
 

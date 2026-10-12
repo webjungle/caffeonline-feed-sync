@@ -1,5 +1,13 @@
-=== CaffeOnline Feed Sync ===
-Stable tag: 0.5.14
+=== webjungle Supplier Sync ===
+Stable tag: 0.6.0
+
+== Neu in 0.6.0 ==
+
+* Allgemeiner Lieferanten-Sync: Thali, CaffeOnline, Ozii Caffè und TopItaly.
+* Thali führt Aroma-Produktdaten und UVP; Lieferantenpriorität Thali → CaffeOnline → Ozii → TopItaly.
+* Thali Händlerdatenimport mit Netto-EK und Prüfdatum; sichere EAN- und URL-Zuordnung.
+* Katalogabgleich aller acht Thali-Kategorien sowie Ozii Aroma, Faber und Didiesse.
+* Bestätigte entfernte Artikel werden bei fehlender Ersatzquelle als Entwurf archiviert.
 
 == Fixes / Neu in 0.5.14 ==
 

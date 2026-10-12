@@ -43,6 +43,9 @@ jobs:
       - name: Test TopItaly cron and stock refresh
         run: php tests/topitaly-cron.php
 
+      - name: Test supplier priority and catalogue prices
+        run: php tests/supplier-catalog.php
+
       - name: Build release ZIP
         run: composer run build
 

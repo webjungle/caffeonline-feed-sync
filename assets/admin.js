@@ -233,9 +233,12 @@
         lockRunUI(false);
         if (runAllSources && !cancelled) {
           runAllSources = false;
+          $.post(COFS.ajax, { action: 'cofs_catalog_start', nonce: COFS.nonce }, function(res){
+            if (!res || !res.success) status('Thali/Ozii konnte nicht gestartet werden: ' + safeMsg(res));
+          }).fail(function(){ status('Thali/Ozii konnte nicht gestartet werden.'); });
           var topItalyButton = $('#cofs-topitaly-start');
           if (topItalyButton.length && !topItalyButton.prop('disabled')) {
-            status('CaffeOnline fertig. Starte jetzt den TopItaly-Sitemap-Abgleich …');
+            status('CaffeOnline fertig. Thali/Ozii laufen im Hintergrund; starte TopItaly …');
             topItalyButton.trigger('click');
           } else {
             status('CaffeOnline fertig. Der TopItaly-Sitemap-Abgleich läuft bereits.');

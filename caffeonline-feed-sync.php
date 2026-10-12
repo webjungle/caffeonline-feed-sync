@@ -1,10 +1,10 @@
 <?php
 /**
- * Plugin Name: CaffeOnline Feed Sync
+ * Plugin Name: webjungle Supplier Sync
  * Plugin URI:  https://github.com/webjungle/caffeonline-feed-sync
- * Description: CSV-Feed (GTIN) → Woo SKU Matching. Batch-Sync (AJAX), Uploads-Cache und 3h-Cron für Lagerbestand.
- * Author: Webjungle
- * Version: 0.5.14
+ * Description: WooCommerce Lieferanten-Sync für Thali, CaffeOnline, Ozii Caffè und TopItaly: Produktdaten, UVP, Einkaufspreise und Lager.
+ * Author: webjungle
+ * Version: 0.6.0
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Text Domain: caffeonline-feed-sync
@@ -12,7 +12,7 @@
  */
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define('COFS_VERSION','0.5.14');
+define('COFS_VERSION','0.6.0');
 define( 'COFS_FILE', __FILE__ );
 define( 'COFS_DIR', plugin_dir_path( __FILE__ ) );
 define( 'COFS_URL', plugin_dir_url( __FILE__ ) );
@@ -64,6 +64,8 @@ require_once COFS_DIR . 'includes/class-caffeonline-scraper.php';
 require_once COFS_DIR . 'includes/class-cofs-scraper.php';
 require_once COFS_DIR . 'includes/class-cofs-supplier-report.php';
 require_once COFS_DIR . 'includes/class-cofs-multi-supplier-stock.php';
+require_once COFS_DIR . 'includes/class-cofs-catalog-parser.php';
+require_once COFS_DIR . 'includes/class-cofs-supplier-catalog.php';
 
 add_action( 'plugins_loaded', function() {
     load_plugin_textdomain( 'caffeonline-feed-sync', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
@@ -90,6 +92,7 @@ add_action( 'init', function() {
         COFS_Multi_Supplier_Stock::init();
         COFS_Multi_Supplier_Stock::schedule();
     }
+    COFS_Supplier_Catalog::init();
 });
 
 register_activation_hook( __FILE__, function() {
@@ -107,6 +110,7 @@ register_activation_hook( __FILE__, function() {
 });
 
 register_deactivation_hook( __FILE__, function() {
+    COFS_Supplier_Catalog::unschedule();
     if ( class_exists( 'COFS_Supplier_Report' ) ) {
         COFS_Supplier_Report::unschedule();
     }

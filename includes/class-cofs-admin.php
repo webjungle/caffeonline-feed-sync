@@ -80,8 +80,8 @@ class COFS_Admin {
 
     public function admin_menu() {
         add_menu_page(
-            __( 'CaffeOnline Sync', 'caffeonline-feed-sync' ),
-            __( 'CaffeOnline Sync', 'caffeonline-feed-sync' ),
+            __( 'Lieferanten Sync', 'caffeonline-feed-sync' ),
+            __( 'Lieferanten Sync', 'caffeonline-feed-sync' ),
             'manage_options',
             'cofs_dashboard',
             [ $this, 'render_page' ],
@@ -452,6 +452,7 @@ class COFS_Admin {
         if ( class_exists( 'COFS_Multi_Supplier_Stock' ) ) {
             COFS_Multi_Supplier_Stock::register_settings_fields();
         }
+        if ( class_exists( 'COFS_Supplier_Catalog' ) ) COFS_Supplier_Catalog::register_settings_fields();
     }
 
     public function sanitize_settings( $input ) {
@@ -468,6 +469,11 @@ class COFS_Admin {
         $out['topitaly_warehouse_term_id'] = absint( $input['topitaly_warehouse_term_id'] ?? 0 );
         $out['caffeonline_stock_tolerance'] = max( 0, intval( $input['caffeonline_stock_tolerance'] ?? 0 ) );
         $out['topitaly_stock_tolerance'] = max( 0, intval( $input['topitaly_stock_tolerance'] ?? 0 ) );
+        foreach ( [ 'thali', 'oziicaffe' ] as $supplier ) {
+            $out[ $supplier . '_enabled' ] = ! empty( $input[ $supplier . '_enabled' ] ) ? 1 : 0;
+            $out[ $supplier . '_warehouse_term_id' ] = absint( $input[ $supplier . '_warehouse_term_id' ] ?? 0 );
+            $out[ $supplier . '_stock_tolerance' ] = max( 0, intval( $input[ $supplier . '_stock_tolerance' ] ?? 0 ) );
+        }
 
         // Ausschlussliste normalisieren
         if ( isset( $input['excluded_product_ids'] ) && is_array( $input['excluded_product_ids'] ) ) {
@@ -659,7 +665,8 @@ class COFS_Admin {
         }
 
         echo '<div class="wrap cofs-wrap">';
-        echo '<h1>' . esc_html__( 'CaffeOnline Feed Sync', 'caffeonline-feed-sync' ) . '</h1>';
+        echo '<h1>' . esc_html__( 'webjungle Lieferanten Sync', 'caffeonline-feed-sync' ) . '</h1>';
+        echo '<p>Lieferantenreihenfolge: Thali → CaffeOnline → Ozii Caffè → TopItaly. Thali führt Produktdaten und UVP der zugeordneten Aroma-Produkte. <a href="' . esc_url( admin_url( 'admin.php?page=cofs_catalog' ) ) . '">Thali / Ozii Katalog und Händlerdaten</a></p>';
 
         // Einstellungen
         echo '<form method="post" action="options.php" class="cofs-settings">';
@@ -673,7 +680,7 @@ class COFS_Admin {
             $scan_total = (int) ( $scan_state['total'] ?? 0 );
             $scan_offset = (int) ( $scan_state['offset'] ?? 0 );
             echo '<div class="cofs-box"><h2>' . esc_html__( 'TopItaly Sitemap-Abgleich', 'caffeonline-feed-sync' ) . '</h2>';
-            echo '<p id="cofs-topitaly-status">' . esc_html( sprintf( __( 'Bereit. Letzter Stand: %1$d von %2$d Sitemap-URLs verarbeitet. CaffeOnline bleibt primär; TopItaly ist nur Fallback bei Bestand 0.', 'caffeonline-feed-sync' ), $scan_offset, $scan_total ) ) . '</p>';
+            echo '<p id="cofs-topitaly-status">' . esc_html( sprintf( __( 'Bereit. Letzter Stand: %1$d von %2$d Sitemap-URLs verarbeitet. TopItaly ist die letzte verfügbare Ersatzquelle.', 'caffeonline-feed-sync' ), $scan_offset, $scan_total ) ) . '</p>';
             echo '<div id="cofs-topitaly-progress" class="cofs-progress"><div class="bar" style="width:' . esc_attr( $scan_total > 0 ? min( 100, round( $scan_offset / $scan_total * 100 ) ) : 0 ) . '%"></div></div>';
             echo '<div id="cofs-topitaly-errors" class="notice notice-error inline" style="display:none;"></div>';
             echo '<p><button type="button" class="button button-secondary" id="cofs-topitaly-start">' . esc_html__( 'Nur TopItaly Sitemap-Scan starten', 'caffeonline-feed-sync' ) . '</button></p></div>';
@@ -682,7 +689,7 @@ class COFS_Admin {
         // Sync
         echo '<div class="cofs-box">';
         echo '<h2>' . esc_html__( 'Sync (Batch)', 'caffeonline-feed-sync' ) . '</h2>';
-        echo '<p>' . esc_html__( '„Sync starten“ führt automatisch zuerst „Feed vorbereiten“ aus (inkl. Max-Zeilen). „Alle Quellen synchronisieren“ startet danach zusätzlich den TopItaly-Sitemap-Abgleich. Mit „Neu laden erzwingen“ wird der CaffeOnline-Cache davor komplett neu erstellt.', 'caffeonline-feed-sync' ) . '</p>';
+        echo '<p>' . esc_html__( '„Sync starten“ aktualisiert den CaffeOnline-Feed. „Alle Quellen synchronisieren“ startet zusätzlich die Hintergrundabgleiche für Thali, Ozii Caffè und TopItaly. Mit „Neu laden erzwingen“ wird der CaffeOnline-Cache neu erstellt.', 'caffeonline-feed-sync' ) . '</p>';
 
         echo '<div id="cofs-controls">';
         echo '  <button class="button" id="cofs-prepare" type="button">' . esc_html__( 'Feed vorbereiten', 'caffeonline-feed-sync' ) . '</button> ';

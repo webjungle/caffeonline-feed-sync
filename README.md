@@ -1,12 +1,17 @@
-# CaffeOnline Feed Sync
+# webjungle Supplier Sync
 
-WooCommerce plugin for syncing the CaffeOnline supplier feed by GTIN/EAN/SKU.
+WooCommerce supplier sync for Thali, CaffeOnline, Ozii Caffè and TopItaly. The existing folder, option names and GitHub update channel remain compatible.
 
-**Aktuelle Plugin-Version:** `0.5.14`
+**Aktuelle Plugin-Version:** `0.6.0`
 
 ## Features
 
-- Multi-supplier stock logic: CaffeOnline is always primary. TopItaly is used only as a fallback when CaffeOnline is out of stock; TopItaly-only products are imported as separate draft products.
+- Supplier priority: Thali → CaffeOnline → Ozii Caffè → TopItaly. Supplier SKUs, EANs, stock, purchase costs and provenance remain separate.
+- Thali scans all eight coffee categories and is authoritative for linked product descriptions, specifications, images and gross UVP. Existing publication status is preserved; new items with verified UVP and images are published. The selling price equals UVP; purchase costs are separate and optional for publication.
+- Thali dealer CSV (including the documented tab-separated Artikelnummer / EAN / Kunden-EP / Bestand export) imports net purchase costs with verification dates. Without a dealer feed, automatic runs update public product data and availability, but cannot refresh private costs. Dealer quantities expire after three hours; public availability then uses WooCommerce stock status without inventing quantities.
+- Ozii scans Aroma, Faber and Didiesse with pagination. Unidentified articles require an explicit product link; no fuzzy title matching or use of public sale prices as purchase costs/UVP.
+- Locked, resumable background batches retain data on transient errors. Confirmed removed Thali Aroma products are unpublished only when no replacement supplier is available.
+- A supplier switch with missing purchase cost clears the previous supplier’s active cost and flags it as missing. Warehouse categories follow the active source, with at most one configured warehouse.
 - TopItaly sitemap scanner with parallel product-page fetching, EAN/SKU matching, stock extraction, and manual per-product TopItaly purchase prices.
 - Batch sync for CaffeOnline supplier stock, vendor SKU, and purchase prices.
 - 3-hour supplier cron for stock and purchase-price updates.
@@ -46,6 +51,7 @@ composer install
 find . -path './vendor' -prune -o -path './dist' -prune -o -name '*.php' -print0 | xargs -0 -n1 php -l
 composer run validate-version
 php tests/topitaly-cron.php
+php tests/supplier-catalog.php
 composer run build
 ```
 
@@ -54,8 +60,8 @@ composer run build
 Create a semantic version tag:
 
 ```bash
-git tag v0.5.14
-git push --atomic origin main v0.5.14
+git tag v0.6.0
+git push --atomic origin main v0.6.0
 ```
 
 GitHub Actions builds `dist/caffeonline-feed-sync.zip` and attaches it to the release.
